@@ -1,0 +1,28 @@
+# Adds Traefik entryPoints/LoadBalancer ports for OTLP, so cerebrai can
+# reach the collector on the standard OTLP ports (4317/4318) it already
+# defaults to (see internal/telemetry/telemetry.go) without any extra
+# config. Zipkin/Prometheus/Grafana don't need this — they route fine
+# through Traefik's default web (80) entrypoint.
+#
+# This is a k3s-specific mechanism: k3s's built-in Traefik add-on reads a
+# HelmChartConfig of the same name to layer extra values onto its chart.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      otlphttp:
+        port: 4318
+        expose:
+          default: true
+        exposedPort: 4318
+        protocol: TCP
+      otlpgrpc:
+        port: 4317
+        expose:
+          default: true
+        exposedPort: 4317
+        protocol: TCP

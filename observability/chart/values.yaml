@@ -1,0 +1,11 @@
+otelCollector:
+  image: otel/opentelemetry-collector-contrib:0.114.0
+
+zipkin:
+  image: openzipkin/zipkin:3
+
+prometheus:
+  image: prom/prometheus:v3.0.1
+
+grafana:
+  image: grafana/grafana:11.4.0
