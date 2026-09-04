@@ -14,8 +14,8 @@ const chatContentLogging = true
 //
 // This variant is compiled only under the cerebrai_dev build tag, so raw
 // conversation content cannot reach telemetry in a distributed binary. It is
-// still gated a second time by the log level: nothing is emitted unless the
-// Preferences log level is set to debug.
+// still gated a second time by the log level: nothing is emitted unless
+// CEREBRAI_LOG_LEVEL is set to debug at startup.
 //
 // Do not build release artifacts with this tag. In OTLP mode these records
 // leave the machine for whatever collector OTEL_EXPORTER_OTLP_ENDPOINT names.
