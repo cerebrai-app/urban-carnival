@@ -1,0 +1,27 @@
+Observability stack deployed via ingress (Traefik, ships with Rancher
+Desktop/k3s) — no port-forwarding needed. Add these to /etc/hosts first
+(single-label hostnames, no dot, so they bypass any system HTTP proxy that
+excludes "simple" hostnames):
+
+  127.0.0.1 zipkin prometheus grafana otel-collector
+
+Then:
+
+  http://zipkin
+  http://prometheus
+  http://grafana
+
+cerebrai sends OTLP through ingress too, on its standard ports:
+
+  http://otel-collector:4318   (OTLP/HTTP)
+  http://otel-collector:4317   (OTLP/gRPC)
+
+Run cerebrai with:
+
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
+    go run ./cmd/cerebrai --otlp ...
+
+If a URL here ever comes back ERR_CONNECTION_RESET (or hangs) in a browser
+but works fine with curl, see the "Why dedicated ports, and why not
+*.localtest.me" section in the chart's README — it's very likely a local
+HTTP proxy resetting connections to hostnames that resolve to loopback.
