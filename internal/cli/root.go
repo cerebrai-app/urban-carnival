@@ -32,7 +32,7 @@ func newRootCmd() *cobra.Command {
 		Short:         "cerebrai is the cerebrai command-line tool",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			setupLogger(logLevel)
 
 			shutdown, err := telemetry.Setup(cmd.Context(), "cerebrai", version.Version, telemetry.Options{OTLP: otlp})
@@ -42,7 +42,7 @@ func newRootCmd() *cobra.Command {
 			cmd.SetContext(context.WithValue(cmd.Context(), shutdownKey{}, shutdown))
 			return nil
 		},
-		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
 			shutdown, ok := cmd.Context().Value(shutdownKey{}).(telemetry.Shutdown)
 			if !ok {
 				return nil
