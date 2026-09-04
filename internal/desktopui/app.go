@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
 	"github.com/cerebrai-app/urban-carnival/internal/version"
@@ -58,15 +59,44 @@ func (a *App) Run(ctx context.Context) {
 
 	a.window.SetContent(tabs)
 	a.window.SetMainMenu(a.buildMainMenu())
+	a.setupSystemTray()
+
+	// Closing the window hides it rather than quitting; the app keeps
+	// running in the background and is only fully quit from the tray menu.
+	a.window.SetCloseIntercept(a.window.Hide)
+
 	a.window.ShowAndRun()
+}
+
+// setupSystemTray adds a taskbar/menu-bar icon with a menu to reopen the
+// window or quit the app outright. Closing the window only hides it, so the
+// tray menu is the sole way to quit.
+func (a *App) setupSystemTray() {
+	desk, ok := a.fyneApp.(desktop.App)
+	if !ok {
+		return
+	}
+
+	showItem := fyne.NewMenuItem("Show cerebrai", func() {
+		a.window.Show()
+		a.window.RequestFocus()
+	})
+	trayMenu := fyne.NewMenu("cerebrai", showItem, fyne.NewMenuItemSeparator(), fyne.NewMenuItem("Quit", a.fyneApp.Quit))
+
+	desk.SetSystemTrayMenu(trayMenu)
+	// TODO: replace with a dedicated cerebrai app icon asset.
+	desk.SetSystemTrayIcon(theme.MailComposeIcon())
 }
 
 func (a *App) buildMainMenu() *fyne.MainMenu {
 	preferencesItem := fyne.NewMenuItem("Preferences…", a.showPreferencesWindow)
 	preferencesItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyComma, Modifier: fyne.KeyModifierSuper}
+	quitItem := fyne.NewMenuItem("Quit cerebrai", a.fyneApp.Quit)
+	quitItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyQ, Modifier: fyne.KeyModifierSuper}
+	quitItem.IsQuit = true
 
 	// The first menu becomes the app menu on macOS.
-	return fyne.NewMainMenu(fyne.NewMenu("cerebrai", preferencesItem))
+	return fyne.NewMainMenu(fyne.NewMenu("cerebrai", preferencesItem, fyne.NewMenuItemSeparator(), quitItem))
 }
 
 // applyTelemetry (re)configures global telemetry export based on the
