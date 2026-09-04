@@ -39,11 +39,12 @@ func (a *App) showPreferencesWindow() {
 	w := a.fyneApp.NewWindow("Preferences")
 	w.Resize(fyne.NewSize(440, 200))
 
-	otlpCheck := widget.NewCheck("Export telemetry via OTLP", func(checked bool) {
+	otlpCheck := widget.NewCheck("Export telemetry via OTLP", nil)
+	otlpCheck.SetChecked(a.fyneApp.Preferences().Bool(prefOTLPKey))
+	otlpCheck.OnChanged = func(checked bool) {
 		a.fyneApp.Preferences().SetBool(prefOTLPKey, checked)
 		go a.applyTelemetry()
-	})
-	otlpCheck.SetChecked(a.fyneApp.Preferences().Bool(prefOTLPKey))
+	}
 
 	help := widget.NewLabel(
 		"When enabled, spans and metrics are exported via OTLP/gRPC instead of\n" +
@@ -52,11 +53,12 @@ func (a *App) showPreferencesWindow() {
 	)
 	help.Wrapping = fyne.TextWrapWord
 
-	logLevelSelect := widget.NewSelect(logLevelOptions, func(level string) {
+	logLevelSelect := widget.NewSelect(logLevelOptions, nil)
+	logLevelSelect.SetSelected(a.logLevel())
+	logLevelSelect.OnChanged = func(level string) {
 		a.fyneApp.Preferences().SetString(prefLogLevelKey, level)
 		go a.applyTelemetry()
-	})
-	logLevelSelect.SetSelected(a.logLevel())
+	}
 
 	w.SetContent(container.NewVBox(
 		otlpCheck,
