@@ -14,9 +14,21 @@ spec:
       labels:
         app: zipkin
     spec:
+      initContainers:
+        - name: wait-for-cassandra
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - until nc -z cassandra 9042; do echo waiting for cassandra; sleep 2; done
       containers:
         - name: zipkin
           image: {{ .Values.zipkin.image }}
+          env:
+            - name: STORAGE_TYPE
+              value: cassandra3
+            - name: CASSANDRA_CONTACT_POINTS
+              value: cassandra
           ports:
             - name: http
               containerPort: 9411

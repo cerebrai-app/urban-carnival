@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: zipkin-dependencies
+spec:
+  schedule: {{ .Values.zipkinDependencies.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: zipkin-dependencies
+              image: {{ .Values.zipkinDependencies.image }}
+              env:
+                - name: STORAGE_TYPE
+                  value: cassandra3
+                - name: CASSANDRA_CONTACT_POINTS
+                  value: cassandra

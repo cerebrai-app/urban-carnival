@@ -6,6 +6,15 @@ chart to the local Kubernetes cluster (Rancher Desktop). Everything —
 including the collector — is reachable through Ingress; nothing needs
 `kubectl port-forward`.
 
+Zipkin stores spans in Cassandra (`openzipkin/zipkin-cassandra`, a single-node
+Cassandra with the zipkin2 schema pre-loaded) rather than its default
+in-memory store, so traces survive a Zipkin pod restart. It runs as a
+`StatefulSet` with a `PersistentVolumeClaim` for `/var/lib/cassandra`. A
+`zipkin-dependencies` `CronJob` (schedule in `values.yaml`, hourly by default)
+runs the batch job that computes the service dependency graph shown on
+Zipkin's "Dependencies" tab — Zipkin itself only ever writes/reads raw spans,
+it doesn't compute that graph on the fly.
+
 Logs are intentionally not aggregated here — `cerebrai`'s log lines already
 carry `trace_id`/`span_id` (see `internal/telemetry/log.go`), so `kubectl
 logs` plus the trace_id in Zipkin is enough for a single-user local tool.
