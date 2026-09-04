@@ -15,6 +15,14 @@ build:
 run:
 	go run ./cmd/cerebrai
 
+.PHONY: build-desktop
+build-desktop:
+	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/cerebrai-desktop ./cmd/cerebrai-desktop
+
+.PHONY: run-desktop
+run-desktop:
+	go run ./cmd/cerebrai-desktop
+
 .PHONY: test
 test:
 	go test ./...

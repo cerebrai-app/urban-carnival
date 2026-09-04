@@ -1,23 +1,38 @@
 # cerebrai
 
-cerebrai is a Go command-line tool.
+cerebrai is a personal automation system and "second brain," described in
+full in [DESIGN.md](DESIGN.md). Per that design, the product surface is a
+native macOS desktop app talking to a background worker that owns
+automation execution, scheduling, and memory; the CLI in this repo is a
+debugging tool, not the primary interface.
 
 ## Layout
 
-- `cmd/cerebrai/` — main package / entrypoint
+- `cmd/cerebrai/` — CLI entrypoint (debugging tool, see DESIGN.md §3)
+- `cmd/cerebrai-desktop/` — desktop app entrypoint
 - `internal/cli/` — cobra command tree
+- `internal/desktopui/` — native desktop UI (chat + automation management),
+  built with [Fyne](https://fyne.io)
+- `internal/workerclient/` — client interface to the background worker's
+  local API, used by the desktop UI; `Mock` stands in until the worker's
+  IPC transport exists
 - `internal/telemetry/` — OpenTelemetry (traces + metrics) setup
 - `internal/version/` — build metadata injected via `-ldflags`
+
+The background worker itself (schedule/trigger evaluation, automation
+execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
 
 ## Develop
 
 ```sh
-make build   # build ./bin/cerebrai
-make run     # go run the CLI
-make test    # go test ./...
-make vet     # go vet ./...
-make lint    # golangci-lint run (requires golangci-lint installed locally)
-make fmt     # gofmt -w .
+make build         # build ./bin/cerebrai
+make run           # go run the CLI
+make build-desktop # build ./bin/cerebrai-desktop
+make run-desktop   # go run the desktop app (against a mock worker client)
+make test          # go test ./...
+make vet           # go vet ./...
+make lint          # golangci-lint run (requires golangci-lint installed locally)
+make fmt           # gofmt -w .
 ```
 
 ## Telemetry
