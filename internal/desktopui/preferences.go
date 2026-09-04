@@ -9,6 +9,26 @@ import (
 // prefOTLPKey is the fyne.Preferences key for the OTLP telemetry toggle.
 const prefOTLPKey = "otlp"
 
+// prefLogLevelKey is the fyne.Preferences key for the slog level, mirroring
+// the cerebrai CLI's --log-level flag (internal/cli/root.go).
+const prefLogLevelKey = "logLevel"
+
+// defaultLogLevel matches the CLI's --log-level default.
+const defaultLogLevel = "info"
+
+// logLevelOptions are the values accepted by telemetry.Setup, matching the
+// CLI's --log-level flag description (debug, info, warn, error).
+var logLevelOptions = []string{"debug", "info", "warn", "error"}
+
+// logLevel returns the configured slog level, defaulting to defaultLogLevel.
+func (a *App) logLevel() string {
+	level := a.fyneApp.Preferences().StringWithFallback(prefLogLevelKey, defaultLogLevel)
+	if level == "" {
+		return defaultLogLevel
+	}
+	return level
+}
+
 // showPreferencesWindow opens (or focuses) the app's preferences window.
 func (a *App) showPreferencesWindow() {
 	if a.preferencesWindow != nil {
@@ -17,7 +37,7 @@ func (a *App) showPreferencesWindow() {
 	}
 
 	w := a.fyneApp.NewWindow("Preferences")
-	w.Resize(fyne.NewSize(440, 160))
+	w.Resize(fyne.NewSize(440, 200))
 
 	otlpCheck := widget.NewCheck("Export telemetry via OTLP", func(checked bool) {
 		a.fyneApp.Preferences().SetBool(prefOTLPKey, checked)
@@ -32,7 +52,18 @@ func (a *App) showPreferencesWindow() {
 	)
 	help.Wrapping = fyne.TextWrapWord
 
-	w.SetContent(container.NewVBox(otlpCheck, help))
+	logLevelSelect := widget.NewSelect(logLevelOptions, func(level string) {
+		a.fyneApp.Preferences().SetString(prefLogLevelKey, level)
+		go a.applyTelemetry()
+	})
+	logLevelSelect.SetSelected(a.logLevel())
+
+	w.SetContent(container.NewVBox(
+		otlpCheck,
+		help,
+		widget.NewLabel("Log level"),
+		logLevelSelect,
+	))
 	w.SetOnClosed(func() { a.preferencesWindow = nil })
 
 	a.preferencesWindow = w

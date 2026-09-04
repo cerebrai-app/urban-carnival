@@ -84,7 +84,7 @@ func (a *App) applyTelemetry() {
 		a.telemetryShutdown = nil
 	}
 
-	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", version.Version, telemetry.Options{OTLP: otlp})
+	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", version.Version, telemetry.Options{OTLP: otlp, LogLevel: a.logLevel()})
 	if err != nil {
 		slog.Error("setup telemetry", "error", err)
 		return
