@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel"
 
-	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
 	"github.com/cerebrai-app/urban-carnival/internal/version"
 )
 
@@ -20,9 +19,7 @@ func newVersionCmd() *cobra.Command {
 			ctx, span := tracer.Start(cmd.Context(), "version")
 			defer span.End()
 
-			slog.LogAttrs(ctx, slog.LevelInfo, "resolved cerebrai version",
-				append(telemetry.TraceAttrs(ctx), slog.String("version", version.Version))...,
-			)
+			slog.InfoContext(ctx, "resolved cerebrai version", "version", version.Version)
 
 			cmd.Println(version.String())
 			return nil

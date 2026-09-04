@@ -1,21 +1,38 @@
+{{- define "prometheus.scrapeConfig" -}}
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector.{{ .Release.Namespace }}.svc.cluster.local:8889"]
+
+  - job_name: zipkin
+    metrics_path: /prometheus
+    static_configs:
+      - targets: ["zipkin.{{ .Release.Namespace }}.svc.cluster.local:9411"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki.{{ .Release.Namespace }}.svc.cluster.local:3100"]
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
 data:
   prometheus.yml: |
-    global:
-      scrape_interval: 15s
-
-    scrape_configs:
-      - job_name: otel-collector
-        static_configs:
-          - targets: ["otel-collector.{{ .Release.Namespace }}.svc.cluster.local:8889"]
-
-      - job_name: zipkin
-        metrics_path: /prometheus
-        static_configs:
-          - targets: ["zipkin.{{ .Release.Namespace }}.svc.cluster.local:9411"]
+{{ include "prometheus.scrapeConfig" . | indent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.prometheus.storage }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,6 +42,8 @@ metadata:
     app: prometheus
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -32,6 +51,10 @@ spec:
     metadata:
       labels:
         app: prometheus
+      annotations:
+        # Force a rollout when scrape config changes, since ConfigMap edits
+        # don't otherwise get picked up by a running Prometheus.
+        checksum/config: {{ include "prometheus.scrapeConfig" . | sha256sum }}
     spec:
       containers:
         - name: prometheus
@@ -43,10 +66,15 @@ spec:
             - name: config
               mountPath: /etc/prometheus/prometheus.yml
               subPath: prometheus.yml
+            - name: data
+              mountPath: /prometheus
       volumes:
         - name: config
           configMap:
             name: prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
 ---
 apiVersion: v1
 kind: Service

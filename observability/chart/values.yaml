@@ -16,6 +16,12 @@ zipkinDependencies:
 
 prometheus:
   image: prom/prometheus:v3.0.1
+  storage: 10Gi
 
 grafana:
   image: grafana/grafana:11.4.0
+  storage: 1Gi
+
+loki:
+  image: grafana/loki:3.3.0
+  storage: 10Gi

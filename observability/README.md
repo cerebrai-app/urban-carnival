@@ -1,10 +1,10 @@
 # Observability stack
 
-Local dev stack for traces (Zipkin) and metrics (Prometheus + Grafana), fed
-by an OTel Collector that receives OTLP from `cerebrai`. Deployed as a Helm
-chart to the local Kubernetes cluster (Rancher Desktop). Everything —
-including the collector — is reachable through Ingress; nothing needs
-`kubectl port-forward`.
+Local dev stack for traces (Zipkin), metrics (Prometheus + Grafana), and
+logs (Loki), fed by an OTel Collector that receives OTLP from `cerebrai`.
+Deployed as a Helm chart to the local Kubernetes cluster (Rancher Desktop).
+Everything — including the collector — is reachable through Ingress; nothing
+needs `kubectl port-forward`.
 
 Zipkin stores spans in Cassandra (`openzipkin/zipkin-cassandra`, a single-node
 Cassandra with the zipkin2 schema pre-loaded) rather than its default
@@ -15,10 +15,15 @@ runs the batch job that computes the service dependency graph shown on
 Zipkin's "Dependencies" tab — Zipkin itself only ever writes/reads raw spans,
 it doesn't compute that graph on the fly.
 
-Logs are intentionally not aggregated here — `cerebrai`'s log lines already
-carry `trace_id`/`span_id` (see `internal/telemetry/log.go`), so `kubectl
-logs` plus the trace_id in Zipkin is enough for a single-user local tool.
-Revisit if that stops being enough.
+Logs are aggregated in Loki (`grafana/loki`), running single-binary with
+filesystem storage — like Prometheus, it has no `PersistentVolumeClaim`, so
+log history doesn't survive a pod restart. The OTel Collector forwards logs
+it receives over OTLP to Loki's native OTLP endpoint (`/otlp/v1/logs`) via
+an `otlphttp` exporter — no separate `loki` exporter or Promtail needed.
+When run with `--otlp`, `cerebrai`'s log lines already carry `trace_id`/
+`span_id` — the `otelslog` bridge in `internal/telemetry/telemetry.go`
+attaches the active span's context to every record automatically — so
+Grafana's trace-to-logs linking works out of the box.
 
 ## Install
 
@@ -36,7 +41,7 @@ after `helm install`/`upgrade` before the new ports are live.
 Add these to `/etc/hosts` (see below for why they're bare names, not FQDNs):
 
 ```
-127.0.0.1 zipkin prometheus grafana otel-collector
+127.0.0.1 zipkin prometheus grafana loki otel-collector
 ```
 
 Then run cerebrai with `--otlp`, pointing it at the collector through
@@ -65,8 +70,10 @@ restart needed.
 - Zipkin: http://zipkin (routes via Traefik's default port 80)
 - Prometheus: http://prometheus (port 80)
 - Grafana: http://grafana (port 80, anonymous admin access, local-only
-  stack) — Prometheus and Zipkin datasources are pre-provisioned, plus a
-  `cerebrai overview` dummy dashboard to iterate on.
+  stack) — Prometheus, Zipkin, and Loki datasources are pre-provisioned,
+  plus a `cerebrai overview` dummy dashboard to iterate on.
+- Loki: http://loki (port 80) — query via Grafana's Explore view, or
+  `logcli --addr=http://loki query '{...}'`.
 - OTel Collector: http://otel-collector:4318 (OTLP/HTTP), http://otel-collector:4317
   (OTLP/gRPC, h2c) — its own dedicated ports, see below.
 

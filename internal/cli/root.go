@@ -4,7 +4,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -33,9 +32,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			setupLogger(logLevel)
-
-			shutdown, err := telemetry.Setup(cmd.Context(), "cerebrai", version.Version, telemetry.Options{OTLP: otlp})
+			shutdown, err := telemetry.Setup(cmd.Context(), "cerebrai", version.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel})
 			if err != nil {
 				return fmt.Errorf("setup telemetry: %w", err)
 			}
@@ -48,9 +45,12 @@ func newRootCmd() *cobra.Command {
 				return nil
 			}
 			// A telemetry backend being unreachable (e.g. no local collector
-			// running) must never fail the command itself.
+			// running) must never fail the command itself. This is printed
+			// directly to stderr rather than logged via slog: in --otlp mode
+			// slog.Default() ships records through the very backend that may
+			// have just failed, so a slog.Warn here could be silently lost.
 			if err := shutdown(cmd.Context()); err != nil {
-				slog.Warn("telemetry shutdown", "error", err)
+				fmt.Fprintln(os.Stderr, "telemetry shutdown:", err)
 			}
 			return nil
 		},
@@ -61,13 +61,4 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd())
 	return cmd
-}
-
-func setupLogger(level string) {
-	var lvl slog.Level
-	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		lvl = slog.LevelInfo
-	}
-	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})
-	slog.SetDefault(slog.New(handler))
 }

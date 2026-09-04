@@ -55,6 +55,24 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: loki
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: loki
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loki
+                port:
+                  number: 3100
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: otel-collector-http
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: otlphttp

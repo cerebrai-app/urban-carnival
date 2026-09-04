@@ -20,6 +20,10 @@ data:
         endpoint: "http://zipkin.{{ .Release.Namespace }}.svc.cluster.local:9411/api/v2/spans"
       prometheus:
         endpoint: "0.0.0.0:8889"
+      otlphttp/loki:
+        endpoint: "http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/otlp"
+        tls:
+          insecure: true
 
     service:
       pipelines:
@@ -31,6 +35,10 @@ data:
           receivers: [otlp]
           processors: [batch]
           exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlphttp/loki]
 ---
 apiVersion: apps/v1
 kind: Deployment
