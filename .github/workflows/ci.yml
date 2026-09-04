@@ -18,6 +18,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Fyne (via go-gl/glfw) cgo-compiles both the X11 and Wayland GLFW
+      # backends by default, so both sets of dev headers are needed even
+      # though the CI runner has no display server.
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+
       - name: Build
         run: go build ./...
 
@@ -45,6 +53,11 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9

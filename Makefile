@@ -62,3 +62,10 @@ tidy:
 .PHONY: clean
 clean:
 	rm -rf bin
+
+# Reproduces the CI build-test job (build, vet, test) in a container with
+# the Fyne/glfw cgo dependencies installed, matching the ubuntu-latest
+# runner without requiring those libraries on the host.
+.PHONY: docker-ci
+docker-ci:
+	docker build -f Dockerfile.ci .

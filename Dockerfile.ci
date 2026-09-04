@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+
+# Reproduces the build-test job in .github/workflows/ci.yml so the Fyne
+# desktop build (cmd/cerebrai-desktop) can be verified locally, including
+# its cgo dependency on X11/Wayland/OpenGL headers, without installing
+# those libraries on the host. Not used to produce a release artifact;
+# see Dockerfile for that.
+FROM golang:1.27-bookworm
+WORKDIR /src
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN go build ./...
+RUN go vet ./...
+RUN go vet -tags cerebrai_dev ./...
+RUN go test -race ./...
