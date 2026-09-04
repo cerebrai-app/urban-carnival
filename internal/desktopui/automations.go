@@ -41,7 +41,13 @@ func newAutomationsView(ctx context.Context, client workerclient.Client) fyne.Ca
 				id := a.ID
 				go func() {
 					if err := client.SetAutomationEnabled(ctx, id, checked); err != nil {
-						slog.Error("set automation enabled", "id", id, "error", err)
+						slog.Error("set automation enabled", "id", id, "enabled", checked, "error", err)
+						return
+					}
+					if checked {
+						slog.Info("automation enabled", "id", id)
+					} else {
+						slog.Info("automation disabled", "id", id)
 					}
 				}()
 			}
@@ -49,11 +55,13 @@ func newAutomationsView(ctx context.Context, client workerclient.Client) fyne.Ca
 	)
 
 	refresh := func() {
+		slog.Info("refreshing automations")
 		result, err := client.ListAutomations(ctx)
 		if err != nil {
 			slog.Error("list automations", "error", err)
 			return
 		}
+		slog.Info("refreshed automations", "count", len(result))
 		fyne.Do(func() {
 			automations = result
 			list.Refresh()
