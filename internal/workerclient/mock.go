@@ -3,12 +3,15 @@ package workerclient
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
 // Mock is an in-memory Client for running and developing the desktop UI
-// before the background worker's local API exists.
+// before the background worker's local API exists. Like any Client, it is
+// safe for concurrent use.
 type Mock struct {
+	mu          sync.Mutex
 	automations []Automation
 }
 
@@ -49,6 +52,9 @@ func (m *Mock) SendMessage(_ context.Context, content string) (Message, error) {
 
 // ListAutomations returns the seeded automations.
 func (m *Mock) ListAutomations(_ context.Context) ([]Automation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	out := make([]Automation, len(m.automations))
 	copy(out, m.automations)
 	return out, nil
@@ -56,6 +62,9 @@ func (m *Mock) ListAutomations(_ context.Context) ([]Automation, error) {
 
 // SetAutomationEnabled updates the enabled flag on the matching automation.
 func (m *Mock) SetAutomationEnabled(_ context.Context, id string, enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for i := range m.automations {
 		if m.automations[i].ID == id {
 			m.automations[i].Enabled = enabled

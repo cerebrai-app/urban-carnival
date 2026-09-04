@@ -45,7 +45,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 					appendLine("cerebrai", "(error contacting background worker)")
 					return
 				}
-				slog.Debug("chat exchange", "input", text, "response", reply.Content)
+				logChatExchange(text, reply.Content)
 				appendLine("cerebrai", reply.Content)
 			})
 		}()

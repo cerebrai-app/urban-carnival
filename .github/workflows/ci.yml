@@ -24,6 +24,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The development-only chat logging variant is excluded from the
+      # default build, so check it explicitly rather than letting it rot.
+      - name: Vet (dev build tag)
+        run: go vet -tags cerebrai_dev ./...
+
       - name: Test
         run: go test -race ./...
 

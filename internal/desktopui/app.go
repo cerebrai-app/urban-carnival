@@ -5,7 +5,8 @@ package desktopui
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
+	"os"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -100,26 +101,36 @@ func (a *App) buildMainMenu() *fyne.MainMenu {
 }
 
 // applyTelemetry (re)configures global telemetry export based on the
-// current OTLP preference, replacing any previously running providers.
+// current OTLP and log level preferences, replacing any previously running
+// providers.
 func (a *App) applyTelemetry() {
-	otlp := a.fyneApp.Preferences().Bool(prefOTLPKey)
-
+	// Held across the whole reconfiguration so two preference toggles in
+	// quick succession cannot interleave and leave telemetryShutdown
+	// pointing at providers other than the globally installed ones.
 	a.telemetryMu.Lock()
 	defer a.telemetryMu.Unlock()
 
-	if a.telemetryShutdown != nil {
-		if err := a.telemetryShutdown(a.ctx); err != nil {
-			slog.Warn("telemetry shutdown", "error", err)
-		}
-		a.telemetryShutdown = nil
-	}
+	otlp := a.fyneApp.Preferences().Bool(prefOTLPKey)
 
-	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", version.Version, telemetry.Options{OTLP: otlp, LogLevel: a.logLevel()})
+	// Install the new providers before tearing the old ones down. Setup
+	// replaces the global tracer/meter/logger and slog.Default(), so on
+	// failure the previous configuration simply keeps running; shutting down
+	// first would leave slog.Default() bound to dead providers and silently
+	// drop every log line from here on, including this error.
+	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", version.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel()})
 	if err != nil {
-		slog.Error("setup telemetry", "error", err)
+		reportTelemetryProblem("setup telemetry", err)
 		return
 	}
+
+	previous := a.telemetryShutdown
 	a.telemetryShutdown = shutdown
+
+	if previous != nil {
+		if err := previous(a.ctx); err != nil {
+			reportTelemetryProblem("telemetry shutdown", err)
+		}
+	}
 }
 
 func (a *App) shutdownTelemetry() {
@@ -130,7 +141,16 @@ func (a *App) shutdownTelemetry() {
 		return
 	}
 	if err := a.telemetryShutdown(a.ctx); err != nil {
-		slog.Warn("telemetry shutdown", "error", err)
+		reportTelemetryProblem("telemetry shutdown", err)
 	}
 	a.telemetryShutdown = nil
+}
+
+// reportTelemetryProblem prints a telemetry failure directly to stderr rather
+// than logging it via slog. In OTLP mode slog.Default() ships records through
+// the very providers being set up or torn down here, so a slog call could be
+// silently lost — the same reasoning as internal/cli/root.go. A telemetry
+// backend being unreachable must never be invisible.
+func reportTelemetryProblem(what string, err error) {
+	fmt.Fprintf(os.Stderr, "%s: %v\n", what, err)
 }

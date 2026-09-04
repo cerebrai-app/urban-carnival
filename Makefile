@@ -2,6 +2,19 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# Local developer environment. .env is gitignored and optional; only the
+# names it defines are exported, so it cannot clobber other make variables.
+# See README.md for the variables the app reads.
+ifneq (,$(wildcard .env))
+include .env
+export $(shell sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*=.*/\1/p' .env)
+endif
+
+# DEV_TAG builds the local-development variant of the desktop app, which
+# logs full chat message and reply text at the debug level. Never build a
+# release artifact with it; see internal/desktopui/chatlog_dev.go.
+DEV_TAG := cerebrai_dev
+
 LDFLAGS := -s -w \
 	-X github.com/cerebrai-app/urban-carnival/internal/version.Version=$(VERSION) \
 	-X github.com/cerebrai-app/urban-carnival/internal/version.Commit=$(COMMIT) \
@@ -19,9 +32,11 @@ run:
 build-desktop:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/cerebrai-desktop ./cmd/cerebrai-desktop
 
+# Runs against the mock worker client, with full chat content logging
+# compiled in (visible at the debug log level, set in Preferences).
 .PHONY: run-desktop
 run-desktop:
-	go run ./cmd/cerebrai-desktop
+	go run -tags $(DEV_TAG) ./cmd/cerebrai-desktop
 
 .PHONY: test
 test:
@@ -30,6 +45,7 @@ test:
 .PHONY: vet
 vet:
 	go vet ./...
+	go vet -tags $(DEV_TAG) ./...
 
 .PHONY: lint
 lint:

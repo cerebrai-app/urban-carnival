@@ -30,6 +30,9 @@ type Automation struct {
 // Client is the desktop app's view of the background worker's local API.
 // The concrete implementation (HTTP, Unix socket, etc.) is decided when the
 // worker's IPC transport is implemented.
+//
+// Implementations must be safe for concurrent use: the UI issues every call
+// from its own goroutine so the main thread never blocks on the worker.
 type Client interface {
 	// SendMessage submits a user message to the conversation and returns
 	// the assistant's reply once generated.

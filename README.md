@@ -28,12 +28,42 @@ execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
 make build         # build ./bin/cerebrai
 make run           # go run the CLI
 make build-desktop # build ./bin/cerebrai-desktop
-make run-desktop   # go run the desktop app (against a mock worker client)
+make run-desktop   # go run the desktop app (dev build, against a mock worker client)
 make test          # go test ./...
-make vet           # go vet ./...
+make vet           # go vet ./... (both the default and dev build variants)
 make lint          # golangci-lint run (requires golangci-lint installed locally)
 make fmt           # gofmt -w .
 ```
+
+## Configuration
+
+The desktop app reads these environment variables at startup:
+
+| Variable | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `CEREBRAI_DEV_SETTINGS` | `1` / `true` / `0` / `false` | unset (off) | Shows the **Developer** section of the Preferences window: the OTLP export toggle and dev-build status. With it unset, users see no developer controls. |
+| `CEREBRAI_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` | Minimum log level. Not settable or shown in the UI. An unrecognized value warns on stderr and falls back to the default. |
+| `OTEL_EXPORTER_OTLP_*` | see [Telemetry](#telemetry) | — | Standard OpenTelemetry exporter configuration. |
+
+Both `CEREBRAI_*` variables are read once at startup, so changing either
+means restarting the app. They are developer controls, deliberately kept out
+of the persisted user preferences.
+
+Put them in a `.env` file in the repo root for local development. It is
+gitignored, and the `Makefile` exports the names it defines to every target,
+so `make run-desktop` picks them up:
+
+```sh
+# .env
+CEREBRAI_DEV_SETTINGS=1
+CEREBRAI_LOG_LEVEL=debug
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+```
+
+Nothing loads `.env` at runtime — a packaged app is configured by its actual
+environment, not by a file it happens to find next to itself.
+
+The CLI is unaffected: it keeps its `--log-level` and `--otlp` flags.
 
 ## Telemetry
 
@@ -54,6 +84,33 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com:4317
 export OTEL_EXPORTER_OTLP_HEADERS="api-key=..."
 cerebrai version --otlp
 ```
+
+The desktop app has no such flags. OTLP export is a checkbox in the
+Developer section of its Preferences window, which `CEREBRAI_DEV_SETTINGS`
+reveals. The log level comes from `CEREBRAI_LOG_LEVEL`, which applies
+whether or not that section is visible. See [Configuration](#configuration).
+
+### Chat content logging
+
+The desktop app logs chat exchanges as metadata only (message lengths).
+Conversation content is the user's private memory store and inbox, and in
+OTLP mode log records leave the machine for whatever collector
+`OTEL_EXPORTER_OTLP_ENDPOINT` names, so raw text is deliberately kept out of
+telemetry in any build a user might run.
+
+For local development, build with the `cerebrai_dev` tag to log the full
+message and reply text instead:
+
+```sh
+make run-desktop                        # dev build, tag applied for you
+go run -tags cerebrai_dev ./cmd/cerebrai-desktop
+```
+
+Two gates have to be open for the text to actually appear: the binary must
+be built with `cerebrai_dev`, **and** `CEREBRAI_LOG_LEVEL=debug` must be
+set. A dev build says so in the Developer section of its Preferences window.
+`make build-desktop` never applies the tag — do not build release artifacts
+with it.
 
 ## Docker
 
