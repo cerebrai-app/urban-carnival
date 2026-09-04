@@ -12,7 +12,9 @@ Create a properly formatted git commit with automatic co-author attribution.
 When the user asks you to commit changes, follow these steps:
 
 1. **Run tests and linting**
-   - Detect the project's test and lint commands (e.g. from `package.json` scripts, a `Makefile`, or existing CI config) and run them
+   - Run `git diff --staged --name-only` (and check unstaged changes too) to see which files changed
+   - If every changed file is non-code and non-configuration — e.g. docs (`*.md`), comments-only skill/prompt files, images, or other pure content/asset files — skip this step entirely and say so
+   - Otherwise, detect the project's test and lint commands (e.g. from `package.json` scripts, a `Makefile`, or existing CI config) and run them
    - If both a test suite and a linter exist, run both
    - If either fails, **stop immediately** — do not create the commit. Report the failure output to the user and either fix the underlying issue (then re-run) or wait for guidance. Never commit with failing tests or lint errors, and never bypass this with `--no-verify` or by skipping the checks
    - If the project has no discoverable test or lint tooling, note that and proceed
@@ -61,6 +63,7 @@ EOF
 
 - Only commit when explicitly asked by the user
 - Tests and linting must pass before a commit is created — failing checks block the commit until fixed or the user says otherwise
+- Skip tests/linting only when the changes are purely non-code/non-configuration (docs, comments, assets, etc.); any code or config change requires running them
 - Never commit sensitive files (.env, credentials, secrets)
 - Prefer creating new commits over amending existing ones
 - Stage specific files by name rather than using `git add -A` or `git add .`
