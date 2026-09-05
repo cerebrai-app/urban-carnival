@@ -1,0 +1,56 @@
+# GoReleaser configuration for the Fyne desktop app (cmd/cerebrai-desktop).
+#
+# The desktop app needs cgo, so it cannot be cross-compiled on one runner
+# the way the CLI can. The "Release" workflow (release.yml) runs
+#   goreleaser build --config .goreleaser.desktop.yaml --single-target --clean
+# on a native runner per OS, then archives and uploads the binary onto the
+# release created by .goreleaser.yaml.
+version: 2
+
+project_name: cerebrai
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: cerebrai-desktop
+    main: ./cmd/cerebrai-desktop
+    binary: cerebrai-desktop
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/cerebrai-app/urban-carnival/internal/config.Version={{ .Version }}
+      - -X github.com/cerebrai-app/urban-carnival/internal/config.Commit={{ .ShortCommit }}
+      - -X github.com/cerebrai-app/urban-carnival/internal/config.Date={{ .CommitDate }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # linux/windows arm64 would need a cross C toolchain plus arm64 GUI
+    # libs; darwin arm64 builds natively on the macOS runner.
+    ignore:
+      - goos: linux
+        goarch: arm64
+      - goos: windows
+        goarch: arm64
+    overrides:
+      # -H=windowsgui suppresses the extra console window Fyne apps
+      # otherwise get on Windows.
+      - goos: windows
+        goarch: amd64
+        ldflags:
+          - -s -w -H=windowsgui
+          - -X github.com/cerebrai-app/urban-carnival/internal/config.Version={{ .Version }}
+          - -X github.com/cerebrai-app/urban-carnival/internal/config.Commit={{ .ShortCommit }}
+          - -X github.com/cerebrai-app/urban-carnival/internal/config.Date={{ .CommitDate }}
+
+# `goreleaser build` ignores these, but they keep `goreleaser check` happy.
+archives:
+  - id: desktop
+    ids: [cerebrai-desktop]
+    formats: [tar.gz]
+
+release:
+  disable: true
