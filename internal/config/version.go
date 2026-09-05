@@ -1,7 +1,8 @@
 // Package config holds cerebrai's build- and environment-derived
 // configuration: version metadata injected at link time via -ldflags (see
-// version.go) and the CEREBRAI_* environment variables that switch behavior
-// between a developer's checkout and a real build (see env.go).
+// version.go) and the CEREBRAI_* environment variables that tune the desktop
+// app (see env.go). The developer-checkout gate itself lives in
+// internal/devmode.
 package config
 
 var (

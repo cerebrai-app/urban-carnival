@@ -4,20 +4,10 @@ import (
 	"context"
 
 	"github.com/cerebrai-app/urban-carnival/internal/agent"
-	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 	"github.com/cerebrai-app/urban-carnival/internal/model"
-	"github.com/cerebrai-app/urban-carnival/internal/model/claudecode"
 	"github.com/cloudwego/eino/schema"
 )
-
-// claudeCodeBin is the Claude Code CLI binary ProviderFor invokes for
-// ModelClaudeCode, resolved via PATH.
-const claudeCodeBin = "claude"
-
-// ModelClaudeCode is the model ID for the local Claude Code CLI provider
-// (internal/model/claudecode), available only in developer builds
-// (config.EnvDevSettings).
-const ModelClaudeCode = "claude-code"
 
 // NewAgentLoop builds the conversation agent loop that SendMessage should
 // use to generate real assistant replies once a model.Provider is wired in
@@ -28,24 +18,18 @@ func NewAgentLoop(ctx context.Context, provider model.Provider) (*agent.Loop, er
 }
 
 // DefaultModel returns the model ID CreateSession assigns to a newly
-// created session: ModelClaudeCode in developer builds, so a session can be
-// exercised end-to-end without a hosted API key, or empty otherwise until a
-// real hosted provider is wired in.
+// created session. Only developer builds have a model to offer so far
+// (devmode.DefaultModel); production sessions are created with an empty
+// model until a real hosted provider is wired in.
 func DefaultModel() string {
-	if config.DevEnabled() {
-		return ModelClaudeCode
-	}
-	return ""
+	return devmode.DefaultModel()
 }
 
 // AvailableModels lists the model IDs a client should offer the user for
-// per-session selection, in display order. Empty in production builds
-// until a real hosted provider is wired in.
+// per-session selection, in display order. Only dev models exist so far
+// (devmode.AvailableModels); empty in production builds.
 func AvailableModels() []string {
-	if config.DevEnabled() {
-		return []string{ModelClaudeCode}
-	}
-	return nil
+	return devmode.AvailableModels()
 }
 
 // ProviderFor resolves a session's model ID (Session.Model) to a
@@ -53,12 +37,10 @@ func AvailableModels() []string {
 // model.Unconfigured — e.g. a session created before any model was
 // available, or one whose model is no longer offered.
 func ProviderFor(modelID string) model.Provider {
-	switch modelID {
-	case ModelClaudeCode:
-		return claudecode.New(claudeCodeBin)
-	default:
-		return model.Unconfigured{}
+	if p := devmode.Provider(modelID); p != nil {
+		return p
 	}
+	return model.Unconfigured{}
 }
 
 // DefaultProvider returns the model.Provider for DefaultModel().

@@ -22,9 +22,12 @@ debugging tool, not the primary interface.
   schema up to date; see [Data storage](#data-storage)
 - `internal/telemetry/` — OpenTelemetry (traces + metrics) setup
 - `internal/config/` — build metadata injected via `-ldflags`, and the
-  `CEREBRAI_*` env var names (`EnvDevMode` is shared by
-  `internal/desktopui` and `internal/storage`; `EnvLogLevel` by
-  `internal/desktopui`)
+  `EnvLogLevel` / `EnvDBPath` env var names (`EnvLogLevel` used by
+  `internal/desktopui`; `EnvDBPath` by `internal/storage`)
+- `internal/devmode/` — everything active only in a developer's checkout:
+  the `CEREBRAI_DEV_MODE` gate (`devmode.Enabled`, used by
+  `internal/desktopui` and `internal/storage`), the local Claude Code model
+  (`devmode/claudecode`), and `cerebrai_dev`-tagged raw chat-content logging
 
 The background worker itself (schedule/trigger evaluation, automation
 execution, memory store, LLM orchestration via Eino) is not yet scaffolded.

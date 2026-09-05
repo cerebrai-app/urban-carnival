@@ -1,14 +1,15 @@
 //go:build !cerebrai_dev
 
-package desktopui
+package devmode
 
 import "log/slog"
 
-// chatContentLogging reports whether this build logs raw conversation
-// content. False in every normal build; see chatlog_dev.go.
-const chatContentLogging = false
+// ChatContentLogging reports whether this build logs raw conversation
+// content. False in every normal build; see chatlog_dev.go. The desktop
+// app's Preferences window surfaces it as a warning when true.
+const ChatContentLogging = false
 
-// logChatExchange records a completed chat round-trip.
+// LogChatExchange records a completed chat round-trip.
 //
 // Metadata only. Conversation content is the user's private memory store and
 // inbox, and in OTLP mode log records are shipped off the machine to a
@@ -16,7 +17,7 @@ const chatContentLogging = false
 // actually run. Developers who need the full text can build with the
 // cerebrai_dev tag (make run-desktop); that variant lives in chatlog_dev.go
 // and is not compiled into a release binary.
-func logChatExchange(input, response string) {
+func LogChatExchange(input, response string) {
 	slog.Debug("chat exchange",
 		"input_len", len(input),
 		"response_len", len(response))

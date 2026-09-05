@@ -1,7 +1,7 @@
 // Package claudecode implements model.Provider on top of the local Claude
 // Code CLI (github.com/lancekrogers/claude-code-go), so the agent loop can
 // be exercised end-to-end in developer builds without a hosted API key
-// (see workerclient.DefaultProvider, gated on config.EnvDevSettings).
+// (see devmode.Provider, gated on devmode.Enabled).
 package claudecode
 
 import (

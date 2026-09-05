@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode/claudecode"
 	"github.com/cerebrai-app/urban-carnival/internal/model"
-	"github.com/cerebrai-app/urban-carnival/internal/model/claudecode"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -36,7 +36,7 @@ func TestNewAgentLoop(t *testing.T) {
 }
 
 func TestDefaultProviderDev(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "true")
+	t.Setenv(devmode.EnvDevMode, "true")
 
 	if _, ok := DefaultProvider().(*claudecode.ChatModel); !ok {
 		t.Errorf("DefaultProvider() = %T, want *claudecode.ChatModel", DefaultProvider())
@@ -44,40 +44,16 @@ func TestDefaultProviderDev(t *testing.T) {
 }
 
 func TestDefaultProviderProd(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "false")
+	t.Setenv(devmode.EnvDevMode, "false")
 
 	if _, ok := DefaultProvider().(model.Unconfigured); !ok {
 		t.Errorf("DefaultProvider() = %T, want model.Unconfigured", DefaultProvider())
 	}
 }
 
-func TestDefaultModel(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "true")
-	if got := DefaultModel(); got != ModelClaudeCode {
-		t.Errorf("DefaultModel() = %q, want %q", got, ModelClaudeCode)
-	}
-
-	t.Setenv(config.EnvDevSettings, "false")
-	if got := DefaultModel(); got != "" {
-		t.Errorf("DefaultModel() = %q, want empty", got)
-	}
-}
-
-func TestAvailableModels(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "true")
-	if got := AvailableModels(); len(got) != 1 || got[0] != ModelClaudeCode {
-		t.Errorf("AvailableModels() = %v, want [%q]", got, ModelClaudeCode)
-	}
-
-	t.Setenv(config.EnvDevSettings, "false")
-	if got := AvailableModels(); len(got) != 0 {
-		t.Errorf("AvailableModels() = %v, want empty", got)
-	}
-}
-
 func TestProviderFor(t *testing.T) {
-	if _, ok := ProviderFor(ModelClaudeCode).(*claudecode.ChatModel); !ok {
-		t.Errorf("ProviderFor(%q) = %T, want *claudecode.ChatModel", ModelClaudeCode, ProviderFor(ModelClaudeCode))
+	if _, ok := ProviderFor(devmode.ModelClaudeCode).(*claudecode.ChatModel); !ok {
+		t.Errorf("ProviderFor(%q) = %T, want *claudecode.ChatModel", devmode.ModelClaudeCode, ProviderFor(devmode.ModelClaudeCode))
 	}
 	if _, ok := ProviderFor("").(model.Unconfigured); !ok {
 		t.Errorf("ProviderFor(\"\") = %T, want model.Unconfigured", ProviderFor(""))

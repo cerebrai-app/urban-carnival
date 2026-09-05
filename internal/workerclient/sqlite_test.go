@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 	"github.com/cerebrai-app/urban-carnival/internal/storage"
 )
 
@@ -14,11 +15,10 @@ import (
 // wraps it as a SQLite client, closing the underlying db when the test ends.
 func newTestSQLite(t *testing.T) *SQLite {
 	t.Helper()
-	// Without this, storage.Path defaults to the real per-user application
 	// data directory, and the Chdir below would not affect it. Clearing
 	// EnvDBPath too: it outranks dev mode, so an ambient value (direnv
 	// loading a .env that sets it, say) would likewise defeat the Chdir.
-	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(devmode.EnvDevMode, "1")
 	t.Setenv(config.EnvDBPath, "")
 	t.Chdir(t.TempDir())
 
@@ -139,9 +139,9 @@ func TestSQLiteCreateSessionDefaultsTitle(t *testing.T) {
 	if session.ID == "" {
 		t.Error("ID not set")
 	}
-	// newTestSQLite enables dev settings, so DefaultModel is ModelClaudeCode.
-	if session.Model != ModelClaudeCode {
-		t.Errorf("Model = %q, want %q", session.Model, ModelClaudeCode)
+	// newTestSQLite enables dev settings, so DefaultModel is the dev model.
+	if session.Model != devmode.ModelClaudeCode {
+		t.Errorf("Model = %q, want %q", session.Model, devmode.ModelClaudeCode)
 	}
 	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
 		t.Error("CreatedAt/UpdatedAt not set")

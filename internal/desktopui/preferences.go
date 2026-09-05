@@ -5,7 +5,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
 // prefOTLPKey is the fyne.Preferences key for the OTLP telemetry toggle.
@@ -23,7 +23,7 @@ func (a *App) showPreferencesWindow() {
 	w.Resize(fyne.NewSize(440, 200))
 
 	content := container.NewVBox()
-	if config.DevEnabled() {
+	if devmode.Enabled() {
 		content.Add(a.developerSettings())
 	} else {
 		// Everything here is currently a developer control. User-facing
@@ -39,7 +39,7 @@ func (a *App) showPreferencesWindow() {
 }
 
 // developerSettings builds the Developer section, shown only when
-// config.EnvDevMode is set. These are diagnostic controls, not things a
+// devmode.EnvDevMode is set. These are diagnostic controls, not things a
 // user should have to reason about.
 func (a *App) developerSettings() fyne.CanvasObject {
 	heading := widget.NewLabel("Developer")
@@ -73,7 +73,7 @@ func (a *App) developerSettings() fyne.CanvasObject {
 	// A cerebrai_dev build logs raw conversation content at debug level. Say
 	// so plainly: these logs leave the machine in OTLP mode, and a dev build
 	// is otherwise indistinguishable from a normal one.
-	if chatContentLogging {
+	if devmode.ChatContentLogging {
 		warning := widget.NewLabel(
 			"Development build: at the debug log level, full chat message and " +
 				"reply text is written to the logs, which are exported off this " +

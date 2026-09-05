@@ -254,7 +254,7 @@ edit_automation(id, requested_change)
 - Concrete providers today:
   - `model.Unconfigured` — placeholder returning `model.ErrNotConfigured`
     from every call; fallback for an unrecognized/empty session model ID.
-  - `model/claudecode.ChatModel` — shells out to the local `claude` CLI
+  - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
     (`claude -p`), dev-builds only. Flattens history into a system prompt +
     single transcript prompt. **`WithTools` currently rejects any
     non-empty tool list outright** — that's the code as it stands today,
@@ -287,9 +287,13 @@ edit_automation(id, requested_change)
   supports `WithTools` for chat's single-shot bind, and separately for the
   automation writer's full tool set — don't assume support for one implies
   the other.
-- Session → provider resolution lives in `internal/workerclient/agent.go`:
-  `DefaultModel()` / `AvailableModels()` (gated on `config.DevEnabled()`),
-  `ProviderFor(modelID)`, `DefaultProvider()`.
+- The dev-only model catalog lives in `internal/devmode`:
+  `devmode.DefaultModel()` / `devmode.AvailableModels()` (gated on
+  `devmode.Enabled()`) and `devmode.Provider(modelID)`, which constructs the
+  `devmode/claudecode` provider. `internal/workerclient/agent.go` wraps these
+  for the `Client` API — `DefaultModel()`, `AvailableModels()`,
+  `ProviderFor(modelID)` (falling back to `model.Unconfigured`),
+  `DefaultProvider()`.
 
 ### 5.7 Wiring status (read before assuming this is live end-to-end)
 

@@ -1,11 +1,11 @@
-package config
+package devmode
 
 import (
 	"os"
 	"testing"
 )
 
-func TestDevEnabled(t *testing.T) {
+func TestEnabled(t *testing.T) {
 	tests := []struct {
 		name  string
 		set   bool
@@ -33,8 +33,8 @@ func TestDevEnabled(t *testing.T) {
 					t.Fatalf("unset %s: %v", EnvDevMode, err)
 				}
 			}
-			if got := DevEnabled(); got != tt.want {
-				t.Errorf("DevEnabled() = %v, want %v", got, tt.want)
+			if got := Enabled(); got != tt.want {
+				t.Errorf("Enabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

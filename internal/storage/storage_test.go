@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
 func TestPathDevIsRepoRelative(t *testing.T) {
-	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(devmode.EnvDevMode, "1")
 	t.Setenv(config.EnvDBPath, "")
 
 	got, err := Path()
@@ -26,7 +27,7 @@ func TestPathDevIsRepoRelative(t *testing.T) {
 func TestPathHonorsExplicitOverride(t *testing.T) {
 	// The override wins even with dev settings on, which would otherwise
 	// resolve to a bare repo-relative fileName.
-	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(devmode.EnvDevMode, "1")
 	want := filepath.Join(t.TempDir(), "pinned.db")
 	t.Setenv(config.EnvDBPath, want)
 
@@ -41,8 +42,8 @@ func TestPathHonorsExplicitOverride(t *testing.T) {
 
 func TestPathReleaseIsUnderAppDataDir(t *testing.T) {
 	// Explicitly empty rather than merely unset, so the test is deterministic
-	// even if EnvDevMode happens to be set to true in the ambient environment.
-	t.Setenv(config.EnvDevMode, "")
+	// even if devmode.EnvDevMode happens to be set to true in the ambient environment.
+	t.Setenv(devmode.EnvDevMode, "")
 	t.Setenv(config.EnvDBPath, "")
 
 	wantDir, err := os.UserConfigDir()
@@ -64,7 +65,7 @@ func TestPathReleaseIsUnderAppDataDir(t *testing.T) {
 // on-disk file (as a restarted app would) and checks the schema it left
 // behind, guarding against a re-applied migration erroring on the second run.
 func TestOpenAppliesMigrationsAndIsIdempotent(t *testing.T) {
-	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(devmode.EnvDevMode, "1")
 	t.Setenv(config.EnvDBPath, "")
 	t.Chdir(t.TempDir())
 

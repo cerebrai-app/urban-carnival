@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
 )
 
@@ -209,7 +210,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 					}
 					return
 				}
-				logChatExchange(text, reply.Content)
+				devmode.LogChatExchange(text, reply.Content)
 				if currentSessionID == sessionID {
 					messages = append(messages, reply)
 					refreshHistory()
