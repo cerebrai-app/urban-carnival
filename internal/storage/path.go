@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
 // fileName is the SQLite database's file name, in either location Path
@@ -18,7 +19,7 @@ const fileName = "cerebrai.db"
 // is how the Makefile's install-macos target pins a Finder-launched dev
 // build (working directory /) to the checkout's database.
 //
-// Otherwise, with config.EnvDevMode set, the database lives at the repo
+// Otherwise, with devmode.EnvDevMode set, the database lives at the repo
 // root as fileName (relative to the working directory the command was
 // launched from) so a developer can find, inspect, or delete it freely; it
 // is gitignored rather than committed. The Makefile's run/run-desktop
@@ -31,7 +32,7 @@ func Path() (string, error) {
 		return p, nil
 	}
 
-	if config.DevEnabled() {
+	if devmode.Enabled() {
 		return fileName, nil
 	}
 

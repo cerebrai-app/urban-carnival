@@ -10,14 +10,14 @@ import (
 	"sync"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
+	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 
+	"github.com/cerebrai-app/urban-carnival/internal/app"
 	"github.com/cerebrai-app/urban-carnival/internal/config"
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
-	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
 )
 
 // App is the desktop application: a native window over the background
@@ -25,7 +25,7 @@ import (
 type App struct {
 	fyneApp fyne.App
 	window  fyne.Window
-	client  workerclient.Client
+	client  app.Client
 	ctx     context.Context
 
 	preferencesWindow fyne.Window
@@ -35,8 +35,8 @@ type App struct {
 }
 
 // New builds the desktop App, wiring it to client.
-func New(client workerclient.Client) *App {
-	fyneApp := app.NewWithID("app.cerebrai.desktop")
+func New(client app.Client) *App {
+	fyneApp := fyneapp.NewWithID("app.cerebrai.desktop")
 	window := fyneApp.NewWindow("cerebrai")
 	window.Resize(fyne.NewSize(960, 640))
 

@@ -8,16 +8,16 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
+	"github.com/cerebrai-app/urban-carnival/internal/app"
 )
 
 // newAutomationsView builds the automation management surface: the list of
 // automations the worker owns, their triggers, and enable/disable controls
 // (DESIGN.md §2, §4).
-func newAutomationsView(ctx context.Context, client workerclient.Client) fyne.CanvasObject {
+func newAutomationsView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	// automations backs the list and is only ever touched on the Fyne main
 	// goroutine, via fyne.Do from the background calls below.
-	var automations []workerclient.Automation
+	var automations []app.Automation
 
 	// setEnabled updates the cached state for one automation and re-binds the
 	// list so the row reflects it. Main goroutine only.

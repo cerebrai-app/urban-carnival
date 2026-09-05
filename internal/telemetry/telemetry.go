@@ -9,6 +9,11 @@
 // OTEL_EXPORTER_OTLP_* environment variables; when OTEL_EXPORTER_OTLP_ENDPOINT
 // is unset, it defaults to a local collector at localhost:4317 over an
 // insecure connection.
+//
+// It also owns LogChatExchange, the one log call that emits conversation
+// content: what it records is chosen at compile time by the cerebrai_dev
+// build tag (see chatlog.go and chatlog_dev.go), since that content must
+// never reach a collector from a build a user might run.
 package telemetry
 
 import (

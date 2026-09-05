@@ -1,4 +1,4 @@
-package workerclient
+package storage
 
 import (
 	"context"
@@ -6,26 +6,41 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cerebrai-app/urban-carnival/internal/app"
 	"github.com/cerebrai-app/urban-carnival/internal/config"
-	"github.com/cerebrai-app/urban-carnival/internal/storage"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
+// stubReplier is the default reply generator tests run with, so SendMessage
+// never shells out to a real chat model. It echoes the latest message.
+func stubReplier(_ context.Context, _ string, history []app.Message) (string, error) {
+	return "reply to: " + history[len(history)-1].Content, nil
+}
+
 // newTestSQLite opens a fresh, migrated database in a temp directory and
-// wraps it as a SQLite client, closing the underlying db when the test ends.
+// wraps it as a SQLite client with a stub replier, closing the underlying db
+// when the test ends.
 func newTestSQLite(t *testing.T) *SQLite {
 	t.Helper()
-	// Without this, storage.Path defaults to the real per-user application
-	// data directory, and the Chdir below would not affect it. Clearing
+	return newTestSQLiteWithReplier(t, stubReplier)
+}
+
+// newTestSQLiteWithReplier is newTestSQLite with a caller-supplied replier,
+// for tests that need to inspect what SendMessage passes it.
+func newTestSQLiteWithReplier(t *testing.T, replier Replier) *SQLite {
+	t.Helper()
+	// Without this, Path defaults to the real per-user application data
+	// directory, and the Chdir below would not affect it. Clearing
 	// EnvDBPath too: it outranks dev mode, so an ambient value (direnv
 	// loading a .env that sets it, say) would likewise defeat the Chdir.
-	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(devmode.EnvDevMode, "1")
 	t.Setenv(config.EnvDBPath, "")
 	t.Chdir(t.TempDir())
 
 	ctx := context.Background()
-	db, err := storage.Open(ctx)
+	db, err := Open(ctx)
 	if err != nil {
-		t.Fatalf("storage.Open: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := db.Close(); err != nil {
@@ -33,7 +48,7 @@ func newTestSQLite(t *testing.T) *SQLite {
 		}
 	})
 
-	return NewSQLite(db)
+	return NewSQLite(db, WithReplier(replier))
 }
 
 func TestSQLiteListsSeededExampleAutomations(t *testing.T) {
@@ -101,7 +116,7 @@ func TestSQLiteSetAutomationEnabledUnknownID(t *testing.T) {
 	}
 }
 
-func TestSQLiteSendMessageEchoes(t *testing.T) {
+func TestSQLiteSendMessagePersistsReplierOutput(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
@@ -117,13 +132,87 @@ func TestSQLiteSendMessageEchoes(t *testing.T) {
 	if got.Role != "assistant" {
 		t.Errorf("Role = %q, want %q", got.Role, "assistant")
 	}
-	if !strings.Contains(got.Content, "hello there") {
-		t.Errorf("reply should echo the input, got: %q", got.Content)
+	if got.Content != "reply to: hello there" {
+		t.Errorf("Content = %q, want the replier's output", got.Content)
 	}
 	if got.CreatedAt.IsZero() {
 		t.Error("CreatedAt not set")
 	}
 }
+
+func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
+	var gotModel string
+	var gotHistory []app.Message
+	s := newTestSQLiteWithReplier(t, func(_ context.Context, model string, history []app.Message) (string, error) {
+		gotModel = model
+		gotHistory = history
+		return "ok", nil
+	})
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+		t.Fatalf("SendMessage(first): %v", err)
+	}
+	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+		t.Fatalf("SendMessage(second): %v", err)
+	}
+
+	if gotModel != devmode.ModelClaudeCode {
+		t.Errorf("model = %q, want %q", gotModel, devmode.ModelClaudeCode)
+	}
+	// Second turn: [user "first", assistant "ok", user "second"].
+	wantContents := []string{"first", "ok", "second"}
+	if len(gotHistory) != len(wantContents) {
+		t.Fatalf("history has %d messages, want %d: %+v", len(gotHistory), len(wantContents), gotHistory)
+	}
+	for i, want := range wantContents {
+		if gotHistory[i].Content != want {
+			t.Errorf("history[%d].Content = %q, want %q", i, gotHistory[i].Content, want)
+		}
+	}
+}
+
+func TestSQLiteSendMessageUnknownSession(t *testing.T) {
+	s := newTestSQLite(t)
+
+	if _, err := s.SendMessage(context.Background(), "nope", "hi"); err == nil {
+		t.Fatal("expected an error for an unknown session ID")
+	}
+}
+
+func TestSQLiteSendMessageReplierErrorIsReturned(t *testing.T) {
+	s := newTestSQLiteWithReplier(t, func(context.Context, string, []app.Message) (string, error) {
+		return "", errReplierBoom
+	})
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if _, err := s.SendMessage(ctx, session.ID, "hi"); !strings.Contains(err.Error(), "boom") {
+		t.Errorf("SendMessage error = %v, want it to wrap the replier error", err)
+	}
+	// A failed reply persists nothing, so a retry won't find an orphaned user
+	// message polluting the session's history.
+	msgs, err := s.ListMessages(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("messages = %+v, want none persisted after a failed reply", msgs)
+	}
+}
+
+var errReplierBoom = errBoom("boom")
+
+type errBoom string
+
+func (e errBoom) Error() string { return string(e) }
 
 func TestSQLiteCreateSessionDefaultsTitle(t *testing.T) {
 	s := newTestSQLite(t)
@@ -139,8 +228,52 @@ func TestSQLiteCreateSessionDefaultsTitle(t *testing.T) {
 	if session.ID == "" {
 		t.Error("ID not set")
 	}
+	// newTestSQLite enables dev settings, so DefaultChatModel is the dev model.
+	if session.Model != devmode.ModelClaudeCode {
+		t.Errorf("Model = %q, want %q", session.Model, devmode.ModelClaudeCode)
+	}
 	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
 		t.Error("CreatedAt/UpdatedAt not set")
+	}
+}
+
+func TestSQLiteSetSessionModelPersists(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	if err := s.SetSessionModel(ctx, session.ID, "some-other-model"); err != nil {
+		t.Fatalf("SetSessionModel: %v", err)
+	}
+
+	got, err := s.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(got))
+	}
+	if got[0].Model != "some-other-model" {
+		t.Errorf("Model = %q, want %q", got[0].Model, "some-other-model")
+	}
+	if !got[0].UpdatedAt.Equal(session.UpdatedAt) {
+		t.Errorf("UpdatedAt changed from %v to %v; switching models should not bump it", session.UpdatedAt, got[0].UpdatedAt)
+	}
+}
+
+func TestSQLiteSetSessionModelUnknownID(t *testing.T) {
+	s := newTestSQLite(t)
+
+	err := s.SetSessionModel(context.Background(), "nope", "claude-code")
+	if err == nil {
+		t.Fatal("expected an error for an unknown session ID")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error should name the missing ID, got: %v", err)
 	}
 }
 
@@ -211,7 +344,7 @@ func TestSQLiteListMessagesReturnsSessionHistoryInOrder(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("got %d messages, want 4", len(got))
 	}
-	wantContents := []string{"first", "(mock worker) you said: \"first\"", "second", "(mock worker) you said: \"second\""}
+	wantContents := []string{"first", "reply to: first", "second", "reply to: second"}
 	for i, want := range wantContents {
 		if got[i].Content != want {
 			t.Errorf("messages[%d].Content = %q, want %q", i, got[i].Content, want)

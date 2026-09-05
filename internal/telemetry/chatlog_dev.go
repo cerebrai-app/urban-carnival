@@ -1,15 +1,15 @@
 //go:build cerebrai_dev
 
-package desktopui
+package telemetry
 
 import "log/slog"
 
-// chatContentLogging reports whether this build logs raw conversation
-// content. True here, which the Preferences window surfaces as a warning so
-// a dev build is never mistaken for a normal one.
-const chatContentLogging = true
+// ChatContentLogging reports whether this build logs raw conversation
+// content. True here, which the desktop app's Preferences window surfaces as
+// a warning so a dev build is never mistaken for a normal one.
+const ChatContentLogging = true
 
-// logChatExchange records a completed chat round-trip, including the raw
+// LogChatExchange records a completed chat round-trip, including the raw
 // text of both sides.
 //
 // This variant is compiled only under the cerebrai_dev build tag, so raw
@@ -19,7 +19,7 @@ const chatContentLogging = true
 //
 // Do not build release artifacts with this tag. In OTLP mode these records
 // leave the machine for whatever collector OTEL_EXPORTER_OTLP_ENDPOINT names.
-func logChatExchange(input, response string) {
+func LogChatExchange(input, response string) {
 	slog.Debug("chat exchange",
 		"input_len", len(input),
 		"response_len", len(response),
