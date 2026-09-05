@@ -28,8 +28,9 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env file, and direnv's local loader shim for it
 .env
+.envrc
 
 # Development-mode SQLite database (see internal/storage.Path) and its
 # SQLite sidecar files.
