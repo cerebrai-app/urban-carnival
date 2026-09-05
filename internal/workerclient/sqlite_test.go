@@ -16,7 +16,7 @@ func newTestSQLite(t *testing.T) *SQLite {
 	t.Helper()
 	// Without this, storage.Path defaults to the real per-user application
 	// data directory, and the Chdir below would not affect it.
-	t.Setenv(config.EnvDevSettings, "1")
+	t.Setenv(config.EnvDevMode, "1")
 	t.Chdir(t.TempDir())
 
 	ctx := context.Background()

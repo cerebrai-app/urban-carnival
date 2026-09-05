@@ -5,7 +5,7 @@ Turns a prebuilt `cerebrai-desktop` binary into `CerebrAI.app` and a
 
 | File            | Purpose                                                        |
 | --------------- | ------------------------------------------------------------- |
-| `package-app.sh` | Assembles the `.app` bundle; `--dmg` also builds the installer. |
+| `package-app.sh` | Assembles the `.app` bundle; `--dmg` also builds the installer, `--env KEY=VALUE` adds `LSEnvironment` entries. |
 | `Info.plist.in`  | Bundle metadata template (`@TOKENS@` filled by the script).     |
 | `icon.png`       | Square source icon, 1024×1024 ideal (see [Credits](#credits)).   |
 
@@ -18,13 +18,24 @@ source of truth.
 ```sh
 make package-macos          # -> dist/macos/CerebrAI.app
 make package-macos DMG=1    # also -> dist/macos/CerebrAI-<version>-<arch>.dmg
-make install-macos          # build + overwrite the copy in ~/Applications
+make install-macos          # build + overwrite the copy in ~/Applications, as a dev build
 ```
 
 `install-macos` quits a running `CerebrAI`, then swaps a fresh build in for
 the installed bundle (copy first, replace only once the copy succeeds). It
 installs to the per-user `~/Applications` so no admin prompt is needed;
 override with `INSTALL_DIR=/Applications`.
+
+Unlike `package-macos`, `install-macos` bakes the dev-mode environment into
+the bundle: it passes each `CEREBRAI_*` / `OTEL_*` name from the repo's
+`.env`, plus `CEREBRAI_DB_PATH` pinned to the checkout's `cerebrai.db`, as
+`--env KEY=VALUE`. `package-app.sh` writes those into `Info.plist` as an
+`LSEnvironment` dict, which LaunchServices applies on a Finder/Dock launch —
+so the installed app shows the Developer preferences section, logs at debug
+level, and reads/writes the same database as `make run-desktop`. The pin is
+needed because a Finder launch runs with working directory `/`, where the
+plain `CEREBRAI_DEV_MODE` path (`./cerebrai.db`) would be unwritable and
+abort startup.
 
 ## Signing
 

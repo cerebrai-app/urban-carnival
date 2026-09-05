@@ -22,7 +22,7 @@ debugging tool, not the primary interface.
   schema up to date; see [Data storage](#data-storage)
 - `internal/telemetry/` — OpenTelemetry (traces + metrics) setup
 - `internal/config/` — build metadata injected via `-ldflags`, and the
-  `CEREBRAI_*` env var names (`EnvDevSettings` is shared by
+  `CEREBRAI_*` env var names (`EnvDevMode` is shared by
   `internal/desktopui` and `internal/storage`; `EnvLogLevel` by
   `internal/desktopui`)
 
@@ -34,15 +34,20 @@ execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
 The desktop app persists its data (automations, and chat sessions with
 their message history) in a SQLite database, opened via
 `internal/storage.Open`. Where that database lives
-depends on `CEREBRAI_DEV_SETTINGS` (see [Configuration](#configuration)),
+depends on `CEREBRAI_DEV_MODE` (see [Configuration](#configuration)),
 the same flag that reveals the Developer preferences section:
 
-- **`CEREBRAI_DEV_SETTINGS` set** (`make run-desktop` sets it for you):
+- **`CEREBRAI_DEV_MODE` set** (`make run-desktop` sets it for you):
   `./cerebrai.db` at the repo root. It's gitignored — inspect it with
   `sqlite3 cerebrai.db`, or delete it to start fresh.
 - **Unset** (the default — `make build-desktop`, or a packaged release): the
   OS's per-user application data directory, e.g.
   `~/Library/Application Support/cerebrai/cerebrai.db` on macOS.
+
+`CEREBRAI_DB_PATH`, if set, overrides both locations with a literal path.
+`make install-macos` sets it (to the checkout's `cerebrai.db`) so the dev
+build it installs still finds a database when launched from Finder, where
+the working directory is `/` and a bare `./cerebrai.db` is unwritable.
 
 Until the background worker exists, `cmd/cerebrai-desktop` opens this
 database directly and uses `workerclient.SQLite` as its `Client`, so
@@ -61,7 +66,7 @@ make lint          # golangci-lint run (requires golangci-lint installed locally
 make fmt           # gofmt -w .
 
 make package-macos # wrap bin/cerebrai-desktop in dist/macos/CerebrAI.app (add DMG=1 for an installer)
-make install-macos # build + overwrite the CerebrAI.app installed in ~/Applications
+make install-macos # build + overwrite the CerebrAI.app in ~/Applications, as a dev build (see below)
 ```
 
 macOS packaging details are in [build/macos/README.md](build/macos/README.md).
@@ -72,13 +77,14 @@ The desktop app reads these environment variables at startup:
 
 | Variable | Values | Default | Effect |
 | --- | --- | --- | --- |
-| `CEREBRAI_DEV_SETTINGS` | `1` / `true` / `0` / `false` | unset (off) | Shows the **Developer** section of the Preferences window (the OTLP export toggle and dev-build status), and stores the SQLite database in the repo root instead of the OS's per-user application data directory (see [Data storage](#data-storage)). `make run-desktop` sets this for you. |
+| `CEREBRAI_DEV_MODE` | `1` / `true` / `0` / `false` | unset (off) | Shows the **Developer** section of the Preferences window (the OTLP export toggle and dev-build status), and stores the SQLite database in the repo root instead of the OS's per-user application data directory (see [Data storage](#data-storage)). `make run-desktop` sets this for you. |
 | `CEREBRAI_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` | Minimum log level. Not settable or shown in the UI. An unrecognized value warns on stderr and falls back to the default. |
+| `CEREBRAI_DB_PATH` | a filesystem path | unset | Overrides where the SQLite database lives, ahead of the `CEREBRAI_DEV_MODE` and per-user-app-data defaults (see [Data storage](#data-storage)). `make install-macos` sets it. |
 | `OTEL_EXPORTER_OTLP_*` | see [Telemetry](#telemetry) | — | Standard OpenTelemetry exporter configuration. |
 
-Both `CEREBRAI_*` variables are read once at startup, so changing either
-means restarting the app. They are developer controls, deliberately kept out
-of the persisted user preferences.
+The `CEREBRAI_*` variables are read once at startup, so changing one means
+restarting the app. They are developer controls, deliberately kept out of
+the persisted user preferences.
 
 Put them in a `.env` file in the repo root for local development. It is
 gitignored, and the `Makefile` exports the names it defines to every target,
@@ -86,13 +92,18 @@ so `make run-desktop` picks them up:
 
 ```sh
 # .env
-CEREBRAI_DEV_SETTINGS=1
+CEREBRAI_DEV_MODE=1
 CEREBRAI_LOG_LEVEL=debug
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
 Nothing loads `.env` at runtime — a packaged app is configured by its actual
-environment, not by a file it happens to find next to itself.
+environment, not by a file it happens to find next to itself. The one bridge
+is `make install-macos`: it copies the `CEREBRAI_*` and `OTEL_*` names from
+`.env` into the installed bundle's `Info.plist` as `LSEnvironment`, so the
+app you install behaves like `make run-desktop` (plus `CEREBRAI_DB_PATH`
+pinned to the checkout — see [Data storage](#data-storage)). Plain
+`make package-macos` does not; its bundle stays a clean release build.
 
 The CLI is unaffected: it keeps its `--log-level` and `--otlp` flags.
 
@@ -117,7 +128,7 @@ cerebrai version --otlp
 ```
 
 The desktop app has no such flags. OTLP export is a checkbox in the
-Developer section of its Preferences window, which `CEREBRAI_DEV_SETTINGS`
+Developer section of its Preferences window, which `CEREBRAI_DEV_MODE`
 reveals. The log level comes from `CEREBRAI_LOG_LEVEL`, which applies
 whether or not that section is visible. See [Configuration](#configuration).
 

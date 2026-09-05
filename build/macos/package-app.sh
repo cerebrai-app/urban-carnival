@@ -15,6 +15,8 @@
 #   --arch STRING     arch label for the .dmg filename (default: `uname -m`)
 #   --outdir DIR      where to write the bundle/installer (default: dist/macos)
 #   --name STRING     app (and .app bundle) name (default: CerebrAI)
+#   --env KEY=VALUE   add an LSEnvironment entry (repeatable); LaunchServices
+#                     applies these when the app is opened from Finder/Dock
 #   --dmg             also build <name>-<version>-<arch>.dmg
 set -euo pipefail
 
@@ -27,6 +29,7 @@ outdir=dist/macos
 app_name=CerebrAI
 bundle_id=app.cerebrai.desktop
 make_dmg=0
+env_pairs=()
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -35,8 +38,9 @@ while [ $# -gt 0 ]; do
 	--arch) arch=$2; shift 2 ;;
 	--outdir) outdir=$2; shift 2 ;;
 	--name) app_name=$2; shift 2 ;;
+	--env) env_pairs+=("$2"); shift 2 ;;
 	--dmg) make_dmg=1; shift ;;
-	-h | --help) sed -n '2,18p' "$0"; exit 0 ;;
+	-h | --help) sed -n '2,20p' "$0"; exit 0 ;;
 	*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
 done
@@ -75,10 +79,35 @@ case "$short" in
 "" | *[!0-9.]* | *..* | .* | *.) short=0.0.0 ;;
 esac
 
+# --env KEY=VALUE pairs become an LSEnvironment <dict> written to a fragment
+# file, which sed reads in where the template's @LS_ENVIRONMENT@ line sits
+# (and always deletes that line). With no --env given the line just vanishes.
+xml_escape() {
+	printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+frag=$(mktemp)
+trap 'rm -f "$frag"' EXIT
+if [ ${#env_pairs[@]} -gt 0 ]; then
+	{
+		printf '\t<key>LSEnvironment</key>\n\t<dict>\n'
+		for pair in "${env_pairs[@]}"; do
+			case "$pair" in
+			*=*) ;;
+			*) echo "--env expects KEY=VALUE: $pair" >&2; exit 2 ;;
+			esac
+			printf '\t\t<key>%s</key>\n\t\t<string>%s</string>\n' \
+				"$(xml_escape "${pair%%=*}")" "$(xml_escape "${pair#*=}")"
+		done
+		printf '\t</dict>\n'
+	} >"$frag"
+fi
+
 sed -e "s|@APP_NAME@|$app_name|g" \
 	-e "s|@BUNDLE_ID@|$bundle_id|g" \
 	-e "s|@VERSION@|$version|g" \
 	-e "s|@SHORT_VERSION@|$short|g" \
+	-e "/@LS_ENVIRONMENT@/r $frag" \
+	-e "/@LS_ENVIRONMENT@/d" \
 	"$here/Info.plist.in" >"$app/Contents/Info.plist"
 
 printf 'APPL????' >"$app/Contents/PkgInfo"

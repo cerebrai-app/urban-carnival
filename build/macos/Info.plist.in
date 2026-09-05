@@ -31,5 +31,6 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© cerebrai</string>
+	@LS_ENVIRONMENT@
 </dict>
 </plist>
