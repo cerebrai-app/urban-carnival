@@ -54,6 +54,14 @@ func TestOpenAppliesMigrationsAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	// The 0001 migration seeds two example automations on a fresh database.
+	var seeded int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM automations`).Scan(&seeded); err != nil {
+		t.Fatalf("count seeded automations: %v", err)
+	}
+	if seeded != 2 {
+		t.Errorf("seeded automations = %d, want 2", seeded)
+	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO automations (id, name, description, trigger, enabled, updated_at)
 		VALUES ('a', 'A', 'desc', 'manual', 1, '2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatalf("insert into migrated table: %v", err)
@@ -76,7 +84,7 @@ func TestOpenAppliesMigrationsAndIsIdempotent(t *testing.T) {
 	if err := db2.QueryRowContext(ctx, `SELECT COUNT(*) FROM automations`).Scan(&count); err != nil {
 		t.Fatalf("query after reopen: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("automations count after reopen = %d, want 1 (data should persist across Open calls)", count)
+	if count != 3 {
+		t.Errorf("automations count after reopen = %d, want 3 (2 seeded + 1 inserted; data should persist across Open calls)", count)
 	}
 }

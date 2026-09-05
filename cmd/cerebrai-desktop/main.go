@@ -28,15 +28,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := workerclient.NewSQLite(ctx, db)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "init storage:", err)
-		closeDB(db)
-		os.Exit(1)
-	}
 	defer closeDB(db)
 
-	desktopui.New(client).Run(ctx)
+	desktopui.New(workerclient.NewSQLite(db)).Run(ctx)
 }
 
 func closeDB(db *sql.DB) {

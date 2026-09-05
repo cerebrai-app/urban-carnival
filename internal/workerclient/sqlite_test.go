@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/cerebrai-app/urban-carnival/internal/config"
 	"github.com/cerebrai-app/urban-carnival/internal/storage"
@@ -31,14 +30,10 @@ func newTestSQLite(t *testing.T) *SQLite {
 		}
 	})
 
-	s, err := NewSQLite(ctx, db)
-	if err != nil {
-		t.Fatalf("NewSQLite: %v", err)
-	}
-	return s
+	return NewSQLite(db)
 }
 
-func TestSQLiteSeedsExampleAutomationsOnce(t *testing.T) {
+func TestSQLiteSeedsExampleAutomations(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
@@ -46,17 +41,14 @@ func TestSQLiteSeedsExampleAutomationsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAutomations: %v", err)
 	}
-	want := len(exampleAutomations(time.Now()))
-	if len(got) != want {
-		t.Fatalf("got %d automations, want %d", len(got), want)
+	// The 0001 migration seeds two illustrative automations on a fresh
+	// database.
+	if len(got) != 2 {
+		t.Fatalf("got %d automations, want 2", len(got))
 	}
 
 	// Re-wrapping the same db (as a restart would) must not seed again.
-	s2, err := NewSQLite(ctx, s.db)
-	if err != nil {
-		t.Fatalf("second NewSQLite: %v", err)
-	}
-	again, err := s2.ListAutomations(ctx)
+	again, err := NewSQLite(s.db).ListAutomations(ctx)
 	if err != nil {
 		t.Fatalf("ListAutomations after reopen: %v", err)
 	}
@@ -83,11 +75,7 @@ func TestSQLiteSetAutomationEnabledPersists(t *testing.T) {
 	}
 
 	// A fresh SQLite wrapping the same db simulates a restart.
-	restarted, err := NewSQLite(ctx, s.db)
-	if err != nil {
-		t.Fatalf("NewSQLite after update: %v", err)
-	}
-	after, err := restarted.ListAutomations(ctx)
+	after, err := NewSQLite(s.db).ListAutomations(ctx)
 	if err != nil {
 		t.Fatalf("ListAutomations after restart: %v", err)
 	}
