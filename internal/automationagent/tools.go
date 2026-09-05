@@ -1,10 +1,9 @@
-package agent
+package automationagent
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/cerebrai-app/urban-carnival/internal/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/schema"
@@ -27,7 +26,7 @@ type spawnAgentInput struct {
 // gets its own spawn_agent tool and may spawn further sub-loops. Depth is
 // bounded only by however many tool-calling rounds the model chooses to make
 // (react.AgentConfig.MaxStep per loop), not by anything here.
-func newSpawnAgentTool(provider model.Provider) (tool.InvokableTool, error) {
+func newSpawnAgentTool(provider ModelProvider) (tool.InvokableTool, error) {
 	return utils.InferTool(
 		"spawn_agent",
 		"Create a new, independent agent loop to work on a self-contained task and return its final reply. "+
@@ -49,7 +48,7 @@ func newSpawnAgentTool(provider model.Provider) (tool.InvokableTool, error) {
 // defaultTools returns the tools every Loop built by New exposes to its
 // model, bound to provider so a tool like spawn_agent can build further
 // Loops of its own.
-func defaultTools(provider model.Provider) ([]tool.BaseTool, error) {
+func defaultTools(provider ModelProvider) ([]tool.BaseTool, error) {
 	spawnAgent, err := newSpawnAgentTool(provider)
 	if err != nil {
 		return nil, fmt.Errorf("spawn_agent tool: %w", err)

@@ -10,8 +10,9 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/cerebrai-app/urban-carnival/internal/app"
+	"github.com/cerebrai-app/urban-carnival/internal/chat"
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
-	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
 )
 
 // newChatView builds the conversational surface: the primary way users
@@ -23,9 +24,9 @@ import (
 // All of the state below (sessions, messages, currentSessionID) is only
 // ever touched on the Fyne main goroutine, via fyne.Do from the background
 // client calls.
-func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObject {
-	var sessions []workerclient.Session
-	var messages []workerclient.Message
+func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
+	var sessions []app.Session
+	var messages []app.Message
 	var currentSessionID string
 
 	history := widget.NewRichTextFromMarkdown("")
@@ -59,7 +60,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 	// newly activated session's stored model, so they don't themselves
 	// trigger a (redundant) SetSessionModel write.
 	var suppressModelChange bool
-	modelSelect := widget.NewSelect(workerclient.AvailableModels(), func(selected string) {
+	modelSelect := widget.NewSelect(chat.AvailableModels(), func(selected string) {
 		if suppressModelChange || currentSessionID == "" {
 			return
 		}
@@ -82,7 +83,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 	// since switched to a different session. Idempotent: a no-op if session
 	// is already current, so it's safe to call unconditionally alongside
 	// sessionList.Select.
-	activateSession := func(session workerclient.Session) {
+	activateSession := func(session app.Session) {
 		if session.ID == currentSessionID {
 			return
 		}
@@ -156,7 +157,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 				return
 			}
 			fyne.Do(func() {
-				sessions = append([]workerclient.Session{session}, sessions...)
+				sessions = append([]app.Session{session}, sessions...)
 				sessionList.Refresh()
 				selectSession(0)
 			})
@@ -177,7 +178,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 				slog.Error("create session", "error", err)
 				return
 			}
-			result = []workerclient.Session{session}
+			result = []app.Session{session}
 		}
 		fyne.Do(func() {
 			sessions = result
@@ -196,7 +197,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 		}
 		sessionID := currentSessionID
 		input.SetText("")
-		messages = append(messages, workerclient.Message{Role: "user", Content: text, CreatedAt: time.Now()})
+		messages = append(messages, app.Message{Role: "user", Content: text, CreatedAt: time.Now()})
 		refreshHistory()
 
 		go func() {
@@ -205,7 +206,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 				if err != nil {
 					slog.Error("send message", "error", err)
 					if currentSessionID == sessionID {
-						messages = append(messages, workerclient.Message{Role: "assistant", Content: "(error contacting background worker)"})
+						messages = append(messages, app.Message{Role: "assistant", Content: "(error contacting background worker)"})
 						refreshHistory()
 					}
 					return

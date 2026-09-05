@@ -1,7 +1,10 @@
-// Package workerclient talks to the cerebrai background worker over its
-// local API (see DESIGN.md §3). The desktop app is a thin UI over this
-// client; it holds no automation, memory, or LLM logic of its own.
-package workerclient
+// Package app defines cerebrai's application layer: the domain types and the
+// Client port that the desktop UI (internal/desktopui) is written against.
+// The UI holds no automation, memory, or LLM logic of its own — it only
+// calls this interface (DESIGN.md §3). The concrete implementation lives
+// elsewhere (internal/storage's SQLite Client today, a background-worker IPC
+// client later) so swapping it never touches the UI.
+package app
 
 import (
 	"context"
@@ -13,9 +16,10 @@ import (
 type Session struct {
 	ID    string
 	Title string
-	// Model is the model ID this session's replies should be generated
-	// with (see DefaultModel, AvailableModels, ProviderFor). Empty means
-	// none has been assigned yet.
+	// Model is the chat model ID this session's replies should be generated
+	// with (see chat.DefaultModel, chat.AvailableModels, chat.ProviderFor).
+	// Empty means none has been assigned yet. The automation writer agent's
+	// model is worker-global, not stored here (see automationagent.Provider).
 	Model     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -42,8 +46,8 @@ type Automation struct {
 }
 
 // Client is the desktop app's view of the background worker's local API.
-// The concrete implementation (HTTP, Unix socket, etc.) is decided when the
-// worker's IPC transport is implemented.
+// The concrete implementation (SQLite today; HTTP, Unix socket, etc. once
+// the worker's IPC transport is implemented) is chosen at wire-up.
 //
 // Implementations must be safe for concurrent use: the UI issues every call
 // from its own goroutine so the main thread never blocks on the worker.
@@ -56,10 +60,10 @@ type Client interface {
 	// first.
 	ListSessions(ctx context.Context) ([]Session, error)
 
-	// SetSessionModel changes the model ID a session's future replies
-	// should be generated with. See AvailableModels for the IDs a client
-	// should offer the user, and ProviderFor to resolve one to a
-	// model.Provider.
+	// SetSessionModel changes the chat model ID a session's future replies
+	// should be generated with. See chat.AvailableModels for the IDs a
+	// client should offer the user, and chat.ProviderFor to resolve one to a
+	// chat.ModelProvider.
 	SetSessionModel(ctx context.Context, sessionID, model string) error
 
 	// ListMessages returns every message in the given session, oldest

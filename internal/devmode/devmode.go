@@ -1,9 +1,10 @@
 // Package devmode gathers the behavior that is active only in a developer's
 // checkout rather than a real build: the CEREBRAI_DEV_MODE gate itself
 // (Enabled) and the local Claude Code model wiring that gate turns on
-// (internal/devmode/claudecode, surfaced here as DefaultModel /
-// AvailableModels / Provider). The cerebrai_dev build tag's raw chat-content
-// logging lives in internal/telemetry.
+// (internal/devmode/claudecode, surfaced here as the chat catalog
+// DefaultChatModel / AvailableChatModels, the worker-global AgentModel, and
+// the shared Provider resolver). The cerebrai_dev build tag's raw
+// chat-content logging lives in internal/telemetry.
 package devmode
 
 import (

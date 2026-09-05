@@ -1,16 +1,28 @@
-package agent
+package automationagent
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/cerebrai-app/urban-carnival/internal/model"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
+	"github.com/cerebrai-app/urban-carnival/internal/devmode/claudecode"
 )
 
-// echoProvider is a minimal model.Provider stand-in for exercising Loop
+// TestChatModelImplementsModelProvider keeps claudecode.ChatModel wired to
+// this seam. devmode.Provider hands it back as an einomodel.ToolCallingChatModel,
+// so this is where a future divergence between ModelProvider and that
+// interface would first fail to compile. It lives here, in the in-package
+// test, because automationagent already imports claudecode transitively via
+// devmode — no external test package needed.
+func TestChatModelImplementsModelProvider(_ *testing.T) {
+	var _ ModelProvider = (*claudecode.ChatModel)(nil)
+}
+
+// echoProvider is a minimal ModelProvider stand-in for exercising Loop
 // without a real vendor integration.
 type echoProvider struct{}
 
@@ -93,15 +105,29 @@ func TestLoopRespondSpawnsAgent(t *testing.T) {
 	}
 }
 
+func TestProviderDev(t *testing.T) {
+	t.Setenv(devmode.EnvDevMode, "true")
+	if _, ok := Provider().(*claudecode.ChatModel); !ok {
+		t.Errorf("Provider() = %T, want *claudecode.ChatModel", Provider())
+	}
+}
+
+func TestProviderProd(t *testing.T) {
+	t.Setenv(devmode.EnvDevMode, "false")
+	if _, ok := Provider().(Unconfigured); !ok {
+		t.Errorf("Provider() = %T, want Unconfigured", Provider())
+	}
+}
+
 func TestLoopRespondUnconfigured(t *testing.T) {
 	ctx := context.Background()
-	loop, err := New(ctx, model.Unconfigured{})
+	loop, err := New(ctx, Unconfigured{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	_, err = loop.Respond(ctx, []*schema.Message{{Role: schema.User, Content: "hello"}})
-	if !errors.Is(err, model.ErrNotConfigured) {
+	if !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("Respond error = %v, want ErrNotConfigured", err)
 	}
 }

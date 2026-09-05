@@ -98,19 +98,22 @@ stack" open question from the previous draft.
 
 ## 5. Chat Session & Automation Writer Agent
 
-**Chat is not an agent.** These are two distinct things sharing the same
-`model.Provider` (§5.6):
+**Chat is not an agent.** These are two distinct things, each its own
+package with its own provider seam — `internal/chat` (`chat.ModelProvider`)
+for chat, `internal/automationagent` (`automationagent.ModelProvider`) for
+the writer (§5.6), so the two can run on different models:
 
 - **Chat session** (§5.2) — plain, non-agentic request/reply. One
-  `Provider.Generate` call per user message, no tool-execution loop, no
-  Eino `react.Agent` involved. This is *all* ordinary conversation is.
+  `chat.ModelProvider.Generate` call per user message, no tool-execution
+  loop, no Eino `react.Agent` involved. This is *all* ordinary conversation
+  is.
 - **Automation writer agent** (§5.3) — the actual agent loop
-  (`internal/agent`, built on Eino's ReAct agent). Genuinely agentic:
-  multi-round tool calling to author or edit an automation (§2). It is
-  invoked, not embedded in chat — chat hands off to it and waits for its
+  (`internal/automationagent`, built on Eino's ReAct agent). Genuinely
+  agentic: multi-round tool calling to author or edit an automation (§2). It
+  is invoked, not embedded in chat — chat hands off to it and waits for its
   result (§5.2).
 
-`internal/agent.Loop` / `react.Agent` should only ever mean the automation
+`automationagent.Loop` / `react.Agent` should only ever mean the automation
 writer from here on — don't reach for it to generate an ordinary chat
 reply.
 
@@ -127,10 +130,10 @@ safe/sensible for open-ended chat.
 ### 5.2 Chat session
 
 ```
-persisted history                 workerclient                model.Provider
-(workerclient.Message)
+persisted history            storage.SQLite (app.Client)      chat.ModelProvider
+(app.Message)
 
-[]Message ──toSchemaMessages──▶ []*schema.Message
+[]app.Message ──convert──▶ []*schema.Message
                                         │
                                         ▼
                         provider.WithTools([create_automation, edit_automation])
@@ -160,10 +163,11 @@ persisted history                 workerclient                model.Provider
   it to completion, and persists whatever it returns (result or status) as
   this turn's assistant reply. Any other tool name coming back would be a
   bug — chat binds nothing else.
-- `workerclient.toSchemaMessages` converts persisted `[]Message` history
-  into `[]*schema.Message`. It currently only distinguishes `"assistant"`
-  vs. everything-else-as-`User` — no `System` role support yet, since the
-  persisted message model has no system-role concept.
+- Converting persisted `[]app.Message` history into `[]*schema.Message` is
+  not implemented yet (the earlier `toSchemaMessages` helper was dropped as
+  dead code) — it lands with the real `SendMessage` wiring (§5.7). The
+  persisted message model has no system-role concept, so that conversion
+  will only distinguish `"assistant"` from everything-else-as-`User`.
 - **Provider caveat — claudecode is a different control flow.** For a
   provider with native, caller-orchestrated tool calling, the diagram above
   is literal: `Generate` returns either a reply or a `ToolCalls` message,
@@ -177,10 +181,10 @@ persisted history                 workerclient                model.Provider
   Chat code doesn't get a `ToolCalls` message to branch on in this case;
   the handoff already happened by the time it sees a reply.
 
-### 5.3 Automation writer agent (`internal/agent`)
+### 5.3 Automation writer agent (`internal/automationagent`)
 
 ```
-create_automation(description)          internal/agent            model.Provider
+create_automation(description)   internal/automationagent  ModelProvider
 edit_automation(id, requested_change)
   (from chat handoff, §5.2)
 
@@ -196,11 +200,16 @@ edit_automation(id, requested_change)
           final artifact (code + metadata) ──▶ back to chat as the reply
 ```
 
-- `agent.Loop` (`internal/agent/agent.go`) is a thin wrapper around
-  `*react.Agent`; `agent.New(ctx, provider)` compiles one, `Loop.Respond`
-  runs one task to completion including any tool-calling rounds. This is
-  unchanged code — what changed is who calls it: only the chat handoff
-  (§5.2), not a per-message conversational wrapper.
+- `automationagent.Loop` (`internal/automationagent/agent.go`) is a thin
+  wrapper around `*react.Agent`; `automationagent.New(ctx, provider)`
+  compiles one over an `automationagent.ModelProvider`, `Loop.Respond` runs
+  one task to completion including any tool-calling rounds. What changed is
+  who calls it: only the chat handoff (§5.2), not a per-message
+  conversational wrapper.
+- The provider is the worker-global automation-writer model
+  (`automationagent.Provider()`), not the chat session's per-session model —
+  production picks it once at user setup, dev builds hard-code it
+  (`devmode.AgentModel`).
 - Seed message: built from the tool call's arguments, the same way
   `spawn_agent` seeds a sub-`Loop` with a single task string (§5.4) —
   `create_automation`'s `description`, or `edit_automation`'s existing
@@ -211,16 +220,17 @@ edit_automation(id, requested_change)
 
 ### 5.4 Tool calling inside the automation writer
 
-- `internal/agent/tools.go` defines the tools the automation writer's
-  `Loop` gets via `defaultTools(provider)`, passed into
+- `internal/automationagent/tools.go` defines the tools the automation
+  writer's `Loop` gets via `defaultTools(provider)`, passed into
   `react.AgentConfig.ToolsConfig`.
 - Currently one tool: **`spawn_agent`**. It builds a brand-new `Loop` over
   the *same* provider, drives it to completion on a single self-contained
   task string, and returns the sub-loop's final reply as the tool result —
   lets the automation writer delegate a sub-task instead of solving it
   inline and growing its own history.
-- **Recursion:** a spawned `Loop` is built the same way (`agent.New`), so it
-  gets its own `spawn_agent` tool and can spawn further sub-loops. Depth is
+- **Recursion:** a spawned `Loop` is built the same way
+  (`automationagent.New`), so it gets its own `spawn_agent` tool and can
+  spawn further sub-loops. Depth is
   bounded only by how many tool-calling rounds the model makes
   (`react.AgentConfig.MaxStep` per loop) — not configured explicitly today,
   so it's whatever Eino's react package defaults to (§5.7).
@@ -245,15 +255,24 @@ edit_automation(id, requested_change)
   sits between that output and actually activating the automation. Don't
   auto-activate — surface the draft for whatever review step §4 settles on.
 
-### 5.6 Provider abstraction (`internal/model`)
+### 5.6 Provider abstractions (`internal/chat`, `internal/automationagent`)
 
-- `model.Provider` is a type alias for Eino's `ToolCallingChatModel`
-  interface, used by *both* chat's single-shot tool-bound `Generate` (§5.2)
-  and the automation writer's `Loop` (§5.3) — one abstraction, two
-  different calling patterns on top of it.
+- Two provider interfaces in two packages, deliberately **not** unified:
+  `chat.ModelProvider` for chat's single-shot tool-bound `Generate` (§5.2)
+  and `automationagent.ModelProvider` for the automation writer's `Loop`
+  (§5.3). Both are Eino's `ToolCallingChatModel` today (named interfaces
+  embedding it, not `=` aliases), so a concrete provider can satisfy both —
+  but splitting them lets chat and the writer run on different models (a
+  cheaper conversational model vs. a stronger code-writing one) and lets
+  either interface diverge later without disturbing the other. The chat
+  model is per-session (`Session.Model`); the agent model is worker-global
+  (§5.3). There is no shared `internal/model` package — each package owns
+  its interface plus its own `Unconfigured` / `ErrNotConfigured`.
 - Concrete providers today:
-  - `model.Unconfigured` — placeholder returning `model.ErrNotConfigured`
-    from every call; fallback for an unrecognized/empty session model ID.
+  - `chat.Unconfigured` / `automationagent.Unconfigured` — placeholders
+    returning that package's `ErrNotConfigured` from every call. The
+    fallback for an unrecognized/empty session model ID (chat) or an
+    unconfigured worker-global agent model.
   - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
     (`claude -p`), dev-builds only. Flattens history into a system prompt +
     single transcript prompt. **`WithTools` currently rejects any
@@ -288,23 +307,36 @@ edit_automation(id, requested_change)
   automation writer's full tool set — don't assume support for one implies
   the other.
 - The dev-only model catalog lives in `internal/devmode`:
-  `devmode.DefaultModel()` / `devmode.AvailableModels()` (gated on
-  `devmode.Enabled()`) and `devmode.Provider(modelID)`, which constructs the
-  `devmode/claudecode` provider. `internal/workerclient/agent.go` wraps these
-  for the `Client` API — `DefaultModel()`, `AvailableModels()`,
-  `ProviderFor(modelID)` (falling back to `model.Unconfigured`),
-  `DefaultProvider()`.
+  `devmode.DefaultChatModel()` / `devmode.AvailableChatModels()` /
+  `devmode.AgentModel()` (all gated on `devmode.Enabled()`) and one shared
+  resolver `devmode.Provider(modelID)` returning the `devmode/claudecode`
+  provider as a bare Eino `ToolCallingChatModel` — the same CLI wrapper
+  serves both seams in dev, so chat-vs-agent is a distinction the callers
+  make, not this catalog. Each provider package wraps it:
+  - `chat.DefaultModel()` / `chat.AvailableModels()` /
+    `chat.ProviderFor(modelID)` / `chat.DefaultProvider()` — the
+    per-session chat catalog, each falling back to `chat.Unconfigured`.
+  - `automationagent.Provider()` — the single worker-global
+    automation-writer provider (§5.3), falling back to
+    `automationagent.Unconfigured`.
+
+  Nothing wraps these for the UI: `storage.SQLite` (the `app.Client` impl,
+  §3) calls `chat.DefaultModel()` directly, and `desktopui` calls
+  `chat.AvailableModels()` directly. The future `SendMessage` wiring (§5.7)
+  will pull in both `chat` and `automationagent`.
 
 ### 5.7 Wiring status (read before assuming this is live end-to-end)
 
-- `SQLite.SendMessage` still returns a mocked echo reply. It needs to call
-  `provider.Generate` directly for plain chat (§5.2) — **not**
-  `workerclient.NewAgentLoop`/`agent.Loop`, which is now reserved for the
-  automation writer specifically.
+- `storage.SQLite.SendMessage` still returns a mocked echo reply. It needs
+  to call a `chat.ModelProvider`'s `Generate` directly for plain chat
+  (§5.2), resolved via `chat.ProviderFor(session.Model)` — **not**
+  `automationagent.New`/`Loop`, which is now reserved for the automation
+  writer specifically.
 - `create_automation` / `edit_automation` don't exist yet as tools, chat
   doesn't bind them yet, and the automation store they depend on doesn't
-  exist yet (§9). Today `internal/agent` only has `spawn_agent`, and nothing
-  calls `agent.New` outside of `spawn_agent` and tests.
+  exist yet (§9). Today `internal/automationagent` only has `spawn_agent`,
+  and nothing calls `automationagent.New` outside of `spawn_agent` and
+  tests.
 - The dev-mode in-process MCP server (§5.6) doesn't exist yet, and
   `ChatModel` doesn't wire `MCPConfigPath`/`Tools` to it — until that's
   built, dev-mode chat under the claudecode provider has no way to trigger
@@ -316,15 +348,17 @@ edit_automation(id, requested_change)
 
 ### 5.8 Testing pattern
 
-- `internal/agent/agent_test.go` fakes `model.Provider` directly
-  (`echoProvider`, `spawningProvider`) instead of hitting a real vendor or
-  the `claude` CLI. `spawningProvider` keys its behavior off the *last
-  message's role/content* rather than a call counter, so the same fake
-  behaves correctly whether it's driving the outer loop or a spawned
-  sub-loop — a pattern worth reusing for any new tool test.
-- `model.Unconfigured` plus `TestLoopRespondUnconfigured` establish the
-  "no provider wired" baseline behavior (`ErrNotConfigured`), which matters
-  because sessions can exist with an unrecognized/legacy model ID.
+- `internal/automationagent/agent_test.go` fakes
+  `automationagent.ModelProvider` directly (`echoProvider`,
+  `spawningProvider`) instead of hitting a real vendor or the `claude` CLI.
+  `spawningProvider` keys its behavior off the *last message's role/content*
+  rather than a call counter, so the same fake behaves correctly whether
+  it's driving the outer loop or a spawned sub-loop — a pattern worth
+  reusing for any new tool test.
+- `automationagent.Unconfigured` plus `TestLoopRespondUnconfigured`
+  establish the "no provider wired" baseline behavior (`ErrNotConfigured`),
+  which matters because sessions can exist with an unrecognized/legacy model
+  ID. `internal/chat`'s `TestUnconfigured` does the same for the chat seam.
 - Once chat's plain `Generate` path is wired (§5.7), it needs its own test
   double distinct from `spawningProvider` — one that returns a
   `create_automation`/`edit_automation` tool call on the *first* `Generate`
@@ -332,7 +366,8 @@ edit_automation(id, requested_change)
 
 ### 5.9 Multi-provider intent (original direction, still holds)
 
-- The assistant/codegen layer sits behind `model.Provider` rather than a
+- The assistant/codegen layer sits behind the `chat.ModelProvider` /
+  `automationagent.ModelProvider` seams rather than a
   hard-coded vendor so Anthropic, OpenAI, and local models can all be
   supported — confirm as new providers are added that Eino's abstraction
   keeps covering them without leaking vendor-specific quirks (e.g.
@@ -375,11 +410,12 @@ edit_automation(id, requested_change)
 
 1. Decide codegen language(s) for automations (spike/prototype comparison).
 2. Decide review/approval model for generated automations before they run.
-3. Automation writer agent scaffold is in place (`internal/agent`, §5) —
-   remaining work is: wiring `SQLite.SendMessage` to call `provider.Generate`
-   directly for plain chat (replacing the mocked echo reply, §5.2 — **not**
-   via `workerclient.NewAgentLoop`, which is reserved for the automation
-   writer); defining the automation store (list, load, persist automation
+3. Automation writer agent scaffold is in place (`internal/automationagent`,
+   §5) — remaining work is: wiring `storage.SQLite.SendMessage` to call
+   `chat.ModelProvider.Generate` directly for plain chat (replacing the
+   mocked echo reply, §5.2 — **not** via `automationagent.New`, which is
+   reserved for the automation writer); defining the automation store
+   (list, load, persist automation
    code + metadata); implementing `create_automation`/`edit_automation` as
    both the chat-side tool bind (§5.2) and the writer's own tools (§5.5);
    building the dev-mode in-process MCP server that serves those tools to

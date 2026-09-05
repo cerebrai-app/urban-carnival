@@ -1,7 +1,8 @@
-// Package claudecode implements model.Provider on top of the local Claude
-// Code CLI (github.com/lancekrogers/claude-code-go), so the agent loop can
-// be exercised end-to-end in developer builds without a hosted API key
-// (see devmode.Provider, gated on devmode.Enabled).
+// Package claudecode implements the chat and automation-writer model
+// provider seams (chat.ModelProvider / automationagent.ModelProvider) on top
+// of the local Claude Code CLI (github.com/lancekrogers/claude-code-go), so
+// both can be exercised end-to-end in developer builds without a hosted API
+// key (see devmode.Provider, gated on devmode.Enabled).
 package claudecode
 
 import (
@@ -10,7 +11,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cerebrai-app/urban-carnival/internal/model"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/lancekrogers/claude-code-go/pkg/claude"
@@ -23,12 +23,12 @@ type promptRunner interface {
 	RunPromptCtx(ctx context.Context, prompt string, opts *claude.RunOptions) (*claude.ClaudeResult, error)
 }
 
-// ChatModel is a model.Provider backed by the Claude Code CLI (`claude -p`).
+// ChatModel is a provider backed by the Claude Code CLI (`claude -p`). It
+// satisfies both chat.ModelProvider and automationagent.ModelProvider — in
+// dev builds the same CLI wrapper serves chat and the automation writer.
 type ChatModel struct {
 	client promptRunner
 }
-
-var _ model.Provider = (*ChatModel)(nil)
 
 // New returns a ChatModel that invokes the Claude Code CLI at binPath
 // (typically "claude", resolved via PATH).

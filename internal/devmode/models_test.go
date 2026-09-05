@@ -6,27 +6,39 @@ import (
 	"github.com/cerebrai-app/urban-carnival/internal/devmode/claudecode"
 )
 
-func TestDefaultModel(t *testing.T) {
+func TestDefaultChatModel(t *testing.T) {
 	t.Setenv(EnvDevMode, "true")
-	if got := DefaultModel(); got != ModelClaudeCode {
-		t.Errorf("DefaultModel() = %q, want %q", got, ModelClaudeCode)
+	if got := DefaultChatModel(); got != ModelClaudeCode {
+		t.Errorf("DefaultChatModel() = %q, want %q", got, ModelClaudeCode)
 	}
 
 	t.Setenv(EnvDevMode, "false")
-	if got := DefaultModel(); got != "" {
-		t.Errorf("DefaultModel() = %q, want empty", got)
+	if got := DefaultChatModel(); got != "" {
+		t.Errorf("DefaultChatModel() = %q, want empty", got)
 	}
 }
 
-func TestAvailableModels(t *testing.T) {
+func TestAvailableChatModels(t *testing.T) {
 	t.Setenv(EnvDevMode, "true")
-	if got := AvailableModels(); len(got) != 1 || got[0] != ModelClaudeCode {
-		t.Errorf("AvailableModels() = %v, want [%q]", got, ModelClaudeCode)
+	if got := AvailableChatModels(); len(got) != 1 || got[0] != ModelClaudeCode {
+		t.Errorf("AvailableChatModels() = %v, want [%q]", got, ModelClaudeCode)
 	}
 
 	t.Setenv(EnvDevMode, "false")
-	if got := AvailableModels(); len(got) != 0 {
-		t.Errorf("AvailableModels() = %v, want empty", got)
+	if got := AvailableChatModels(); len(got) != 0 {
+		t.Errorf("AvailableChatModels() = %v, want empty", got)
+	}
+}
+
+func TestAgentModel(t *testing.T) {
+	t.Setenv(EnvDevMode, "true")
+	if got := AgentModel(); got != ModelClaudeCode {
+		t.Errorf("AgentModel() = %q, want %q", got, ModelClaudeCode)
+	}
+
+	t.Setenv(EnvDevMode, "false")
+	if got := AgentModel(); got != "" {
+		t.Errorf("AgentModel() = %q, want empty", got)
 	}
 }
 
