@@ -11,7 +11,8 @@ import (
 )
 
 func TestPathDevIsRepoRelative(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "1")
+	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(config.EnvDBPath, "")
 
 	got, err := Path()
 	if err != nil {
@@ -22,10 +23,27 @@ func TestPathDevIsRepoRelative(t *testing.T) {
 	}
 }
 
+func TestPathHonorsExplicitOverride(t *testing.T) {
+	// The override wins even with dev settings on, which would otherwise
+	// resolve to a bare repo-relative fileName.
+	t.Setenv(config.EnvDevMode, "1")
+	want := filepath.Join(t.TempDir(), "pinned.db")
+	t.Setenv(config.EnvDBPath, want)
+
+	got, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
 func TestPathReleaseIsUnderAppDataDir(t *testing.T) {
 	// Explicitly empty rather than merely unset, so the test is deterministic
-	// even if EnvDevSettings happens to be set to true in the ambient environment.
-	t.Setenv(config.EnvDevSettings, "")
+	// even if EnvDevMode happens to be set to true in the ambient environment.
+	t.Setenv(config.EnvDevMode, "")
+	t.Setenv(config.EnvDBPath, "")
 
 	wantDir, err := os.UserConfigDir()
 	if err != nil {
@@ -46,7 +64,8 @@ func TestPathReleaseIsUnderAppDataDir(t *testing.T) {
 // on-disk file (as a restarted app would) and checks the schema it left
 // behind, guarding against a re-applied migration erroring on the second run.
 func TestOpenAppliesMigrationsAndIsIdempotent(t *testing.T) {
-	t.Setenv(config.EnvDevSettings, "1")
+	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(config.EnvDBPath, "")
 	t.Chdir(t.TempDir())
 
 	ctx := context.Background()

@@ -39,7 +39,7 @@ func (a *App) showPreferencesWindow() {
 }
 
 // developerSettings builds the Developer section, shown only when
-// config.EnvDevSettings is set. These are diagnostic controls, not things a
+// config.EnvDevMode is set. These are diagnostic controls, not things a
 // user should have to reason about.
 func (a *App) developerSettings() fyne.CanvasObject {
 	heading := widget.NewLabel("Developer")

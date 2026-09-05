@@ -24,13 +24,13 @@ func TestDevEnabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.set {
-				t.Setenv(EnvDevSettings, tt.value)
+				t.Setenv(EnvDevMode, tt.value)
 			} else {
 				// t.Setenv restores the previous value at cleanup, so setting
 				// then unsetting is enough to exercise LookupEnv's !ok branch.
-				t.Setenv(EnvDevSettings, "")
-				if err := os.Unsetenv(EnvDevSettings); err != nil {
-					t.Fatalf("unset %s: %v", EnvDevSettings, err)
+				t.Setenv(EnvDevMode, "")
+				if err := os.Unsetenv(EnvDevMode); err != nil {
+					t.Fatalf("unset %s: %v", EnvDevMode, err)
 				}
 			}
 			if got := DevEnabled(); got != tt.want {
