@@ -16,10 +16,15 @@ import (
 	"path/filepath"
 
 	"modernc.org/sqlite"
+
+	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+//go:embed seeds/*.sql
+var seedsFS embed.FS
 
 // Open opens (creating if necessary) cerebrai's SQLite database at its
 // resolved Path, brings its schema up to date via migrate, and returns the
@@ -61,10 +66,18 @@ func Open(ctx context.Context) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrate applies every embedded migration not yet recorded in
-// schema_migrations, in filename order, each inside its own transaction. It
-// is safe to run concurrently against the same database (see applyMigration):
-// the migrationApplied check here is only a fast path.
+// migrate brings the database's schema up to date. Every embedded migration
+// under migrations/ not yet recorded in schema_migrations is applied in
+// filename order, each inside its own transaction. It is safe to run
+// concurrently against the same database (see applyMigration): the
+// migrationApplied check is only a fast path.
+//
+// A real build stops there, leaving a completely empty schema. A developer's
+// checkout (devmode.Enabled) additionally applies the embedded files under
+// seeds/, so a fresh dev database carries illustrative rows rather than being
+// blank. Seed files are tracked in schema_migrations under a "seed:" version
+// prefix so their entries can't collide with a real migration of the same
+// filename.
 func migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -74,15 +87,34 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
+	if err := applyEmbedded(ctx, db, migrationsFS, "migrations", ""); err != nil {
+		return err
+	}
+
+	if devmode.Enabled() {
+		if err := applyEmbedded(ctx, db, seedsFS, "seeds", "seed:"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyEmbedded applies every *.sql file in dir of fsys that is not already
+// recorded in schema_migrations, in filename order, recording each under
+// versionPrefix + filename.
+func applyEmbedded(ctx context.Context, db *sql.DB, fsys fs.FS, dir, versionPrefix string) error {
 	// fs.ReadDir (and embed.FS's directory listing) already returns entries
-	// sorted by filename, which is the migration order we want.
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	// sorted by filename, which is the apply order we want.
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
+		return fmt.Errorf("read %s: %w", dir, err)
 	}
 
 	for _, entry := range entries {
-		applied, err := migrationApplied(ctx, db, entry.Name())
+		version := versionPrefix + entry.Name()
+
+		applied, err := migrationApplied(ctx, db, version)
 		if err != nil {
 			return err
 		}
@@ -90,13 +122,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 
-		sqlBytes, err := migrationsFS.ReadFile("migrations/" + entry.Name())
+		sqlBytes, err := fs.ReadFile(fsys, dir+"/"+entry.Name())
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("read %s: %w", version, err)
 		}
 
-		if err := applyMigration(ctx, db, entry.Name(), string(sqlBytes)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", entry.Name(), err)
+		if err := applyMigration(ctx, db, version, string(sqlBytes)); err != nil {
+			return fmt.Errorf("apply %s: %w", version, err)
 		}
 	}
 

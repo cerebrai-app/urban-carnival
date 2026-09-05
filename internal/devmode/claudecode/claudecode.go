@@ -28,12 +28,36 @@ type promptRunner interface {
 // dev builds the same CLI wrapper serves chat and the automation writer.
 type ChatModel struct {
 	client promptRunner
+	// mcpConfigJSON, when non-empty, is an inline `--mcp-config` JSON document
+	// pointing the CLI at cerebrai's in-process MCP server (DESIGN.md §5.6);
+	// mcpTools is the qualified tool names to pre-approve. Set via WithMCP,
+	// used only by the chat seam — the automation writer must not get these
+	// tools since its own run is what they invoke.
+	mcpConfigJSON string
+	mcpTools      []string
+}
+
+// Option configures a ChatModel at construction.
+type Option func(*ChatModel)
+
+// WithMCP attaches cerebrai's in-process MCP server to every CLI invocation:
+// configJSON is an inline `--mcp-config` document and toolNames are the
+// mcp__<server>__<tool> names to allow without prompting (DESIGN.md §5.6).
+func WithMCP(configJSON string, toolNames []string) Option {
+	return func(m *ChatModel) {
+		m.mcpConfigJSON = configJSON
+		m.mcpTools = toolNames
+	}
 }
 
 // New returns a ChatModel that invokes the Claude Code CLI at binPath
 // (typically "claude", resolved via PATH).
-func New(binPath string) *ChatModel {
-	return &ChatModel{client: claude.NewClient(binPath)}
+func New(binPath string, opts ...Option) *ChatModel {
+	m := &ChatModel{client: claude.NewClient(binPath)}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Generate flattens the conversation history into a system prompt (from any
@@ -43,10 +67,22 @@ func New(binPath string) *ChatModel {
 func (m *ChatModel) Generate(ctx context.Context, messages []*schema.Message, _ ...einomodel.Option) (*schema.Message, error) {
 	system, prompt := buildPrompt(messages)
 
-	result, err := m.client.RunPromptCtx(ctx, prompt, &claude.RunOptions{
+	opts := &claude.RunOptions{
 		Format:       claude.JSONOutput,
 		SystemPrompt: system,
-	})
+	}
+	if m.mcpConfigJSON != "" {
+		// Attach only our server (StrictMCPConfig) and pre-approve its tools
+		// so the non-interactive `-p` run doesn't block on a permission
+		// prompt. bypassPermissions is acceptable here: dev-only, and
+		// cerebrai runs automations unsandboxed anyway (DESIGN.md §7).
+		opts.MCPConfigs = []string{m.mcpConfigJSON}
+		opts.StrictMCPConfig = true
+		opts.AllowedTools = m.mcpTools
+		opts.PermissionMode = claude.PermissionModeBypassPermissions
+	}
+
+	result, err := m.client.RunPromptCtx(ctx, prompt, opts)
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: %w", err)
 	}

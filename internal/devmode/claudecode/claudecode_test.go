@@ -44,6 +44,40 @@ func TestChatModelGenerate(t *testing.T) {
 	}
 }
 
+func TestChatModelGenerateWithoutMCP(t *testing.T) {
+	fake := &fakeRunner{result: &claude.ClaudeResult{Result: "ok"}}
+	m := &ChatModel{client: fake}
+
+	if _, err := m.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}}); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(fake.gotOpts.MCPConfigs) != 0 || fake.gotOpts.PermissionMode != "" {
+		t.Errorf("MCP options set without WithMCP: %+v", fake.gotOpts)
+	}
+}
+
+func TestChatModelGenerateWithMCP(t *testing.T) {
+	fake := &fakeRunner{result: &claude.ClaudeResult{Result: "ok"}}
+	m := &ChatModel{client: fake}
+	WithMCP(`{"mcpServers":{}}`, []string{"mcp__cerebrai__create_automation"})(m)
+
+	if _, err := m.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}}); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if got := fake.gotOpts.MCPConfigs; len(got) != 1 || got[0] != `{"mcpServers":{}}` {
+		t.Errorf("MCPConfigs = %v", got)
+	}
+	if !fake.gotOpts.StrictMCPConfig {
+		t.Error("StrictMCPConfig not set")
+	}
+	if got := fake.gotOpts.AllowedTools; len(got) != 1 || got[0] != "mcp__cerebrai__create_automation" {
+		t.Errorf("AllowedTools = %v", got)
+	}
+	if fake.gotOpts.PermissionMode != claude.PermissionModeBypassPermissions {
+		t.Errorf("PermissionMode = %q", fake.gotOpts.PermissionMode)
+	}
+}
+
 func TestChatModelGenerateRunError(t *testing.T) {
 	fake := &fakeRunner{err: errors.New("boom")}
 	m := &ChatModel{client: fake}

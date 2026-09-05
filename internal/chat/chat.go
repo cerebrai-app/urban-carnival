@@ -68,7 +68,7 @@ func AvailableModels() []string {
 // e.g. a session created before any model was available, or one whose model
 // is no longer offered.
 func ProviderFor(modelID string) ModelProvider {
-	if p := devmode.Provider(modelID); p != nil {
+	if p := devmode.ChatProvider(modelID); p != nil {
 		return p
 	}
 	return Unconfigured{}

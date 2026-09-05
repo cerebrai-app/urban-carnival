@@ -42,7 +42,23 @@ type Automation struct {
 	Description string
 	Trigger     string // e.g. "schedule: 0 8 * * *", "webhook", "manual"
 	Enabled     bool
-	UpdatedAt   time.Time
+	// Source is the automation writer's authored code for this automation
+	// (DESIGN.md §5.5). It's a draft until §4's review flow activates it, so
+	// a freshly written automation is persisted with Enabled false.
+	Source    string
+	UpdatedAt time.Time
+}
+
+// AutomationDraft is the not-yet-persisted output of the automation writer
+// (DESIGN.md §5.5): authored Source plus the metadata the writer settled on.
+// The store assigns the ID, forces Enabled false, and stamps UpdatedAt. It
+// lives here, next to Automation, so both internal/storage and the dev MCP
+// server (internal/devmode/devmcp) can name it without importing each other.
+type AutomationDraft struct {
+	Name        string
+	Description string
+	Trigger     string
+	Source      string
 }
 
 // Client is the desktop app's view of the background worker's local API.

@@ -275,9 +275,10 @@ edit_automation(id, requested_change)
     unconfigured worker-global agent model.
   - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
     (`claude -p`), dev-builds only. Flattens history into a system prompt +
-    single transcript prompt. **`WithTools` currently rejects any
-    non-empty tool list outright** — that's the code as it stands today,
-    not the target design (see the dev MCP server below).
+    single transcript prompt. **`WithTools` rejects any non-empty tool list
+    outright** — the CLI drives its own tool use and can't take an Eino tool
+    bind; tools reach it via MCP instead (`WithMCP`, see the dev MCP server
+    below).
   - The CLI doesn't take an Eino-style `[]*schema.ToolInfo` bind; its
     external-tool mechanism is **MCP**. `RunOptions.Tools`, `AllowedTools`,
     and `DisallowedTools` are tool-*name* selectors (`--tools`,
@@ -286,19 +287,33 @@ edit_automation(id, requested_change)
     names from an MCP server registered via `MCPConfigPath`/`MCPConfigs`.
     None of the three hands the CLI a brand-new tool's schema by itself —
     only MCP server config does that.
-  - **Decision: the worker runs its own in-process MCP server, dev builds
-    only,** serving cerebrai's own tools (`create_automation`,
-    `edit_automation`, and any others chat or the automation writer expose
-    to this provider) to the `claude` CLI subprocess. `ChatModel` points
-    `RunOptions.MCPConfigPath`/`MCPConfigs` at it and names the tools
-    (`mcp__cerebrai__create_automation`, etc.) in `Tools`/`AllowedTools`.
+  - **Decision (built): the worker runs its own in-process MCP server, dev
+    builds only** — `internal/devmode/devmcp`, serving cerebrai's own tools
+    (`create_automation`, `edit_automation`) to the `claude` CLI subprocess.
+    Transport is **streamable HTTP on a random 127.0.0.1 port** (via
+    `github.com/modelcontextprotocol/go-sdk`); truly in-process, so the tool
+    handlers share the worker's live automation store. `devmcp.Server`
+    exposes `ConfigJSON()` (an inline `--mcp-config` document) and
+    `ToolNames()`; `devmode.SetMCPBridge` registers it, and
+    `devmode.ChatProvider` hands both to `claudecode.WithMCP`, which sets
+    `RunOptions.MCPConfigs` + `AllowedTools` + `StrictMCPConfig: true`
+    (ignore the dev's own `.mcp.json`) + `PermissionMode: bypassPermissions`
+    (dev-only; cerebrai runs automations unsandboxed anyway, §7). Only the
+    **chat** seam gets this wiring — the automation writer
+    (`automationagent.Provider`, still plain `devmode.Provider`) must not,
+    since its own run is what the tools invoke.
     Because the CLI executes MCP tool calls itself inside `RunPromptCtx`
     rather than surfacing them to the caller, the MCP handler for
     `create_automation`/`edit_automation` is where the automation writer
     actually gets invoked for this provider (§5.2's provider caveat) — the
-    handler runs the writer's `Loop` to completion and returns its result
-    as the MCP tool result, which the CLI then folds into its own final
-    reply text. This is dev-only scaffolding to exercise the loop without a
+    handler runs the writer to author source, persists it as a **disabled
+    draft** (§5.5, §4), and returns a summary as the MCP tool result, which
+    the CLI folds into its own final reply text. **Current shortcut:** the
+    handler calls the writer provider's single-shot `Generate`, not an Eino
+    `Loop` — for the claudecode provider a single `claude -p` is itself an
+    agentic run, and the `Loop` can't wrap claudecode anyway (its `WithTools`
+    rejects tools). A real `Loop` here waits on a native tool-calling writer
+    provider. This is dev-only scaffolding to exercise the flow without a
     hosted API key (§9); a native tool-calling provider (Anthropic/OpenAI
     hosted) wouldn't need this bridge at all — chat's plain `WithTools` bind
     (§5.2) covers it directly.
@@ -322,25 +337,35 @@ edit_automation(id, requested_change)
 
   Nothing wraps these for the UI: `storage.SQLite` (the `app.Client` impl,
   §3) calls `chat.DefaultModel()` directly, and `desktopui` calls
-  `chat.AvailableModels()` directly. The future `SendMessage` wiring (§5.7)
-  will pull in both `chat` and `automationagent`.
+  `chat.AvailableModels()` directly. `storage.SQLite.SendMessage` pulls in
+  `chat` (via `chat.Reply` / `chat.ProviderFor`); `cmd/cerebrai-desktop`
+  pulls in `automationagent` to feed the dev MCP server its writer.
 
 ### 5.7 Wiring status (read before assuming this is live end-to-end)
 
-- `storage.SQLite.SendMessage` still returns a mocked echo reply. It needs
-  to call a `chat.ModelProvider`'s `Generate` directly for plain chat
-  (§5.2), resolved via `chat.ProviderFor(session.Model)` — **not**
-  `automationagent.New`/`Loop`, which is now reserved for the automation
-  writer specifically.
-- `create_automation` / `edit_automation` don't exist yet as tools, chat
-  doesn't bind them yet, and the automation store they depend on doesn't
-  exist yet (§9). Today `internal/automationagent` only has `spawn_agent`,
-  and nothing calls `automationagent.New` outside of `spawn_agent` and
-  tests.
-- The dev-mode in-process MCP server (§5.6) doesn't exist yet, and
-  `ChatModel` doesn't wire `MCPConfigPath`/`Tools` to it — until that's
-  built, dev-mode chat under the claudecode provider has no way to trigger
-  the automation writer conversationally.
+- `storage.SQLite.SendMessage` calls `chat.Reply(ctx,
+  chat.ProviderFor(session.Model), history)` for plain chat (§5.2) — **not**
+  `automationagent.New`/`Loop`, which is reserved for the automation writer.
+  The reply generator is an injectable `Replier` field (tests stub it). In
+  production builds the provider is `chat.Unconfigured`, so `SendMessage`
+  errors until a hosted provider is wired in.
+- `chat.Reply` does **not** yet bind `create_automation`/`edit_automation`
+  as intent signals, and there's no `ToolCalls` branch / chat→writer handoff
+  in chat code. Not needed for the only provider that exists (claudecode
+  reaches those tools over MCP, §5.6); a native tool-calling provider will
+  need both added.
+- `create_automation` / `edit_automation` exist as **MCP tools only**
+  (`internal/devmode/devmcp`), served to the dev claudecode provider. They
+  are not Eino tools on the automation writer's `Loop` yet, and
+  `automationagent` still only has `spawn_agent`.
+- The automation store persists authored `source` (`app.Automation.Source`);
+  `storage.SQLite` has `GetAutomation` / `CreateAutomation` /
+  `UpdateAutomation` for the MCP handlers (not on `app.Client` — dev-only
+  consumer). The schema is still one pre-release migration
+  (`0001_initial_schema.sql`).
+- The dev-mode in-process MCP server (§5.6) is built and wired:
+  `cmd/cerebrai-desktop` starts `devmcp.Start` and calls
+  `devmode.SetMCPBridge` when `devmode.Enabled()`.
 - No tracing/callbacks hooked up to `internal/telemetry` yet.
 - No explicit `MaxStep`/loop-budget configured for the automation writer —
   a runaway tool-calling loop (e.g. repeated `spawn_agent` recursion) is
@@ -411,18 +436,18 @@ edit_automation(id, requested_change)
 1. Decide codegen language(s) for automations (spike/prototype comparison).
 2. Decide review/approval model for generated automations before they run.
 3. Automation writer agent scaffold is in place (`internal/automationagent`,
-   §5) — remaining work is: wiring `storage.SQLite.SendMessage` to call
-   `chat.ModelProvider.Generate` directly for plain chat (replacing the
-   mocked echo reply, §5.2 — **not** via `automationagent.New`, which is
-   reserved for the automation writer); defining the automation store
-   (list, load, persist automation
-   code + metadata); implementing `create_automation`/`edit_automation` as
-   both the chat-side tool bind (§5.2) and the writer's own tools (§5.5);
-   building the dev-mode in-process MCP server that serves those tools to
-   the Claude Code CLI provider (§5.6), including the `ChatModel` wiring to
-   point `RunOptions.MCPConfigPath`/`Tools` at it; memory read/write tools;
-   a `MaxStep` loop budget; and tracing hookup with the existing
-   `internal/telemetry` OTel setup.
+   §5). **Done:** `storage.SQLite.SendMessage` now calls `chat.Reply` for
+   plain chat (§5.2, §5.7); the automation store persists authored source
+   (`GetAutomation`/`CreateAutomation`/`UpdateAutomation`);
+   `create_automation`/`edit_automation` exist as MCP tools; the dev-mode
+   in-process MCP server (`internal/devmode/devmcp`) is built and wired to
+   the Claude Code CLI provider (§5.6).
+   **Remaining:** the chat-side intent bind + `ToolCalls`/handoff branch for
+   native providers (§5.7); `create_automation`/`edit_automation` as the
+   writer's own Eino tools and running the writer as a real `Loop` rather
+   than single-shot `Generate` (§5.6); memory read/write tools; a `MaxStep`
+   loop budget; tracing hookup with the existing `internal/telemetry` OTel
+   setup.
 4. Define the memory/second-brain data model (what's stored, how retrieved,
    how it interacts with automation context) and how it's exposed to Eino
    as a tool/component.

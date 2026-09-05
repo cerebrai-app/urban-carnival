@@ -55,9 +55,45 @@ func AgentModel() string {
 // seams in dev builds, so there's one resolver here; chat vs. agent is a
 // distinction the callers (chat.ModelProvider / automationagent.ModelProvider)
 // make, not this catalog.
+//
+// This is the plain resolver, used by the automation writer
+// (automationagent.Provider). The chat seam uses ChatProvider instead, which
+// additionally attaches the in-process MCP server.
 func Provider(modelID string) einomodel.ToolCallingChatModel {
 	if modelID == ModelClaudeCode {
 		return claudecode.New(claudeCodeBin)
 	}
 	return nil
+}
+
+// MCPBridge is the in-process MCP server (internal/devmode/devmcp) as the
+// chat provider needs to see it: an inline `--mcp-config` document and the
+// qualified names of the tools it serves. Registered once at app wire-up via
+// SetMCPBridge; nil until then (and always, in production builds).
+type MCPBridge interface {
+	ConfigJSON() string
+	ToolNames() []string
+}
+
+var mcpBridge MCPBridge
+
+// SetMCPBridge records the running in-process MCP server so ChatProvider can
+// wire the Claude Code CLI to it (DESIGN.md §5.6). Call once during dev-build
+// app wire-up, before any chat turn.
+func SetMCPBridge(b MCPBridge) { mcpBridge = b }
+
+// ChatProvider is Provider for the chat seam: the same dev model resolution,
+// but the returned Claude Code provider is wired to cerebrai's in-process MCP
+// server when one has been registered (SetMCPBridge). That's what lets a
+// dev-build chat turn trigger create_automation/edit_automation — the CLI
+// executes those MCP tools itself, and their handlers run the automation
+// writer (DESIGN.md §5.2 provider caveat, §5.6).
+func ChatProvider(modelID string) einomodel.ToolCallingChatModel {
+	if modelID != ModelClaudeCode {
+		return nil
+	}
+	if mcpBridge == nil {
+		return claudecode.New(claudeCodeBin)
+	}
+	return claudecode.New(claudeCodeBin, claudecode.WithMCP(mcpBridge.ConfigJSON(), mcpBridge.ToolNames()))
 }
