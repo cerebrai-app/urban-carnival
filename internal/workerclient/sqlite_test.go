@@ -33,27 +33,26 @@ func newTestSQLite(t *testing.T) *SQLite {
 	return NewSQLite(db)
 }
 
-func TestSQLiteSeedsExampleAutomations(t *testing.T) {
+func TestSQLiteListsSeededExampleAutomations(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
+	// The 0001 migration seeds two illustrative automations on a fresh
+	// database; ListAutomations should surface them in insertion order.
+	// (Migration idempotency across reopens is covered by
+	// storage.TestOpenAppliesMigrationsAndIsIdempotent.)
 	got, err := s.ListAutomations(ctx)
 	if err != nil {
 		t.Fatalf("ListAutomations: %v", err)
 	}
-	// The 0001 migration seeds two illustrative automations on a fresh
-	// database.
 	if len(got) != 2 {
 		t.Fatalf("got %d automations, want 2", len(got))
 	}
-
-	// Re-wrapping the same db (as a restart would) must not seed again.
-	again, err := NewSQLite(s.db).ListAutomations(ctx)
-	if err != nil {
-		t.Fatalf("ListAutomations after reopen: %v", err)
+	if got[0].ID != "water-plants" || !got[0].Enabled {
+		t.Errorf("first automation = %+v, want id=water-plants enabled=true", got[0])
 	}
-	if len(again) != len(got) {
-		t.Errorf("automation count changed across reopen: got %d, want %d", len(again), len(got))
+	if got[1].ID != "inbox-summary" || got[1].Enabled {
+		t.Errorf("second automation = %+v, want id=inbox-summary enabled=false", got[1])
 	}
 }
 
