@@ -1,5 +1,7 @@
 # cerebrai
 
+<img src="build/macos/icon.png" alt="CerebrAI app icon" width="120" align="right">
+
 cerebrai is a personal automation system and "second brain," described in
 full in [DESIGN.md](DESIGN.md). Per that design, the product surface is a
 native macOS desktop app talking to a background worker that owns
@@ -147,3 +149,8 @@ with it.
 docker build -t cerebrai .
 docker run --rm cerebrai version
 ```
+
+## Credits
+
+App icon: <a href="https://www.flaticon.com/free-icons/brain" title="brain icons">Brain icons created by Reddie - Flaticon</a>
+
