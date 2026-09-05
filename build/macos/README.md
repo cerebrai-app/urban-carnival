@@ -7,7 +7,7 @@ Turns a prebuilt `cerebrai-desktop` binary into `CerebrAI.app` and a
 | --------------- | ------------------------------------------------------------- |
 | `package-app.sh` | Assembles the `.app` bundle; `--dmg` also builds the installer. |
 | `Info.plist.in`  | Bundle metadata template (`@TOKENS@` filled by the script).     |
-| `icon.png`       | 1024×1024 source icon. **Placeholder — replace with the real art.** |
+| `icon.png`       | Square source icon, 1024×1024 ideal (see [Credits](#credits)).   |
 
 The script builds nothing itself: the binary comes from `make build-desktop`
 or from goreleaser in the release workflow, so version ldflags have one
@@ -32,3 +32,8 @@ but not to pass Gatekeeper on a download — first launch needs right-click ▸
 Open, or `xattr -dr com.apple.quarantine CerebrAI.app`. A Developer ID
 signature plus notarization is out of scope here (it needs Apple credentials
 in CI).
+
+## Credits
+
+`icon.png`: <a href="https://www.flaticon.com/free-icons/brain" title="brain icons">Brain icons created by Reddie - Flaticon</a>
+
