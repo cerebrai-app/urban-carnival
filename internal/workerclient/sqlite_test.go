@@ -113,8 +113,14 @@ func TestSQLiteSetAutomationEnabledUnknownID(t *testing.T) {
 
 func TestSQLiteSendMessageEchoes(t *testing.T) {
 	s := newTestSQLite(t)
+	ctx := context.Background()
 
-	got, err := s.SendMessage(context.Background(), "hello there")
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	got, err := s.SendMessage(ctx, session.ID, "hello there")
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
@@ -126,6 +132,103 @@ func TestSQLiteSendMessageEchoes(t *testing.T) {
 	}
 	if got.CreatedAt.IsZero() {
 		t.Error("CreatedAt not set")
+	}
+}
+
+func TestSQLiteCreateSessionDefaultsTitle(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if session.Title != newSessionTitle {
+		t.Errorf("Title = %q, want %q", session.Title, newSessionTitle)
+	}
+	if session.ID == "" {
+		t.Error("ID not set")
+	}
+	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
+		t.Error("CreatedAt/UpdatedAt not set")
+	}
+}
+
+func TestSQLiteListSessionsOrdersByMostRecentlyUpdated(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	first, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession(first): %v", err)
+	}
+	second, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession(second): %v", err)
+	}
+
+	// Sending a message on the first session bumps its updated_at, so it
+	// should sort ahead of the second even though it was created earlier.
+	if _, err := s.SendMessage(ctx, first.ID, "hello"); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	got, err := s.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d sessions, want 2", len(got))
+	}
+	if got[0].ID != first.ID {
+		t.Errorf("got[0].ID = %q, want %q (most recently active)", got[0].ID, first.ID)
+	}
+	if got[1].ID != second.ID {
+		t.Errorf("got[1].ID = %q, want %q", got[1].ID, second.ID)
+	}
+	if got[0].Title != titleFromContent("hello") {
+		t.Errorf("first session title = %q, want retitled from its first message", got[0].Title)
+	}
+}
+
+func TestSQLiteListMessagesReturnsSessionHistoryInOrder(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	other, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession(other): %v", err)
+	}
+	if _, err := s.SendMessage(ctx, other.ID, "unrelated"); err != nil {
+		t.Fatalf("SendMessage(other): %v", err)
+	}
+
+	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+		t.Fatalf("SendMessage(first): %v", err)
+	}
+	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+		t.Fatalf("SendMessage(second): %v", err)
+	}
+
+	got, err := s.ListMessages(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d messages, want 4", len(got))
+	}
+	wantContents := []string{"first", "(mock worker) you said: \"first\"", "second", "(mock worker) you said: \"second\""}
+	for i, want := range wantContents {
+		if got[i].Content != want {
+			t.Errorf("messages[%d].Content = %q, want %q", i, got[i].Content, want)
+		}
+		if got[i].SessionID != session.ID {
+			t.Errorf("messages[%d].SessionID = %q, want %q", i, got[i].SessionID, session.ID)
+		}
 	}
 }
 
