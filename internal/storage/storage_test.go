@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,5 +87,46 @@ func TestOpenAppliesMigrationsAndIsIdempotent(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("automations count after reopen = %d, want 3 (2 seeded + 1 inserted; data should persist across Open calls)", count)
+	}
+}
+
+// TestApplyMigrationSkipsVersionClaimedConcurrently reproduces the race
+// between two processes opening the same fresh database: both pass the outer
+// migrationApplied check, then one commits the migration while the other is
+// still inside applyMigration. The straggler must notice the version is now
+// taken and skip its DDL rather than re-run it (and fail on, e.g., a
+// duplicate CREATE TABLE).
+func TestApplyMigrationSkipsVersionClaimedConcurrently(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	const version = "0001_test.sql"
+	const ddl = `CREATE TABLE widgets (id TEXT PRIMARY KEY)`
+
+	// The winning process: schema_migrations + a fully applied migration.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (version TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	if err := applyMigration(ctx, db, version, ddl); err != nil {
+		t.Fatalf("first applyMigration: %v", err)
+	}
+
+	// The straggler, running the same migration it wrongly believes is
+	// pending: it must return nil (claim already taken), not an error.
+	if err := applyMigration(ctx, db, version, ddl); err != nil {
+		t.Errorf("second applyMigration on already-claimed version: %v", err)
+	}
+
+	var tables int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'widgets'`).Scan(&tables); err != nil {
+		t.Fatalf("count widgets table: %v", err)
+	}
+	if tables != 1 {
+		t.Errorf("widgets table count = %d, want 1", tables)
 	}
 }
