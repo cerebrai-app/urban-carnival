@@ -29,8 +29,9 @@ execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
 
 ## Data storage
 
-The desktop app persists its data (currently just automations) in a SQLite
-database, opened via `internal/storage.Open`. Where that database lives
+The desktop app persists its data (automations, and chat sessions with
+their message history) in a SQLite database, opened via
+`internal/storage.Open`. Where that database lives
 depends on `CEREBRAI_DEV_SETTINGS` (see [Configuration](#configuration)),
 the same flag that reveals the Developer preferences section:
 
@@ -43,7 +44,7 @@ the same flag that reveals the Developer preferences section:
 
 Until the background worker exists, `cmd/cerebrai-desktop` opens this
 database directly and uses `workerclient.SQLite` as its `Client`, so
-automations survive restarts.
+automations and chat history survive restarts.
 
 ## Develop
 

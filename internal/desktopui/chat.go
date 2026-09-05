@@ -186,10 +186,13 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 				if currentSessionID == sessionID {
 					messages = append(messages, reply)
 					refreshHistory()
+					// The reply may have retitled or reordered this session
+					// in the list, so refresh it; keep it selected. Only do
+					// this while sessionID is still current — otherwise the
+					// user has since switched away, and refreshing would
+					// yank them back to the session they just left.
+					refreshSessions(sessionID)
 				}
-				// The reply may have retitled or reordered this session in
-				// the list, so refresh it; keep the same session selected.
-				refreshSessions(sessionID)
 			})
 		}()
 	}
