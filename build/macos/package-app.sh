@@ -56,10 +56,15 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$exe" "$app/Contents/MacOS/$app_name"
 chmod +x "$app/Contents/MacOS/$app_name"
 
+# Scratch dir for the intermediate files below (iconset, plist fragment);
+# removed on any exit, success or failure.
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
 # icon.png -> icon.icns. sips/iconutil want a .iconset directory of the
 # conventional sizes; missing sizes just render blurrier, so a full set is
 # cheap insurance.
-iconset=$(mktemp -d)/icon.iconset
+iconset="$scratch/icon.iconset"
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
 	sips -z "$size" "$size" "$here/icon.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
@@ -67,7 +72,6 @@ for size in 16 32 128 256 512; do
 	sips -z "$retina" "$retina" "$here/icon.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/icon.icns"
-rm -rf "$(dirname "$iconset")"
 
 # CFBundleShortVersionString must be one to three dot-separated integers, so
 # drop a leading v and any -prerelease / +build / -dirty suffix. The full
@@ -85,8 +89,8 @@ esac
 xml_escape() {
 	printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
-frag=$(mktemp)
-trap 'rm -f "$frag"' EXIT
+frag="$scratch/ls-environment.plist"
+: >"$frag"
 if [ ${#env_pairs[@]} -gt 0 ]; then
 	{
 		printf '\t<key>LSEnvironment</key>\n\t<dict>\n'

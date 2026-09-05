@@ -15,8 +15,11 @@ import (
 func newTestSQLite(t *testing.T) *SQLite {
 	t.Helper()
 	// Without this, storage.Path defaults to the real per-user application
-	// data directory, and the Chdir below would not affect it.
+	// data directory, and the Chdir below would not affect it. Clearing
+	// EnvDBPath too: it outranks dev mode, so an ambient value (direnv
+	// loading a .env that sets it, say) would likewise defeat the Chdir.
 	t.Setenv(config.EnvDevMode, "1")
+	t.Setenv(config.EnvDBPath, "")
 	t.Chdir(t.TempDir())
 
 	ctx := context.Background()

@@ -99,11 +99,12 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
 Nothing loads `.env` at runtime — a packaged app is configured by its actual
 environment, not by a file it happens to find next to itself. The one bridge
-is `make install-macos`: it copies the `CEREBRAI_*` and `OTEL_*` names from
-`.env` into the installed bundle's `Info.plist` as `LSEnvironment`, so the
-app you install behaves like `make run-desktop` (plus `CEREBRAI_DB_PATH`
-pinned to the checkout — see [Data storage](#data-storage)). Plain
-`make package-macos` does not; its bundle stays a clean release build.
+is `make install-macos`: it builds with the `cerebrai_dev` tag and copies the
+`CEREBRAI_*` and `OTEL_*` names from `.env` into the installed bundle's
+`Info.plist` as `LSEnvironment`, so the app you install matches
+`make run-desktop` (plus `CEREBRAI_DB_PATH` pinned to the checkout — see
+[Data storage](#data-storage)). Plain `make package-macos` does neither; its
+bundle stays a clean release build.
 
 The CLI is unaffected: it keeps its `--log-level` and `--otlp` flags.
 
@@ -145,14 +146,15 @@ message and reply text instead:
 
 ```sh
 make run-desktop                        # dev build, tag applied for you
+make install-macos                      # dev build, tag applied for you
 go run -tags cerebrai_dev ./cmd/cerebrai-desktop
 ```
 
 Two gates have to be open for the text to actually appear: the binary must
 be built with `cerebrai_dev`, **and** `CEREBRAI_LOG_LEVEL=debug` must be
 set. A dev build says so in the Developer section of its Preferences window.
-`make build-desktop` never applies the tag — do not build release artifacts
-with it.
+`make build-desktop` and `make package-macos` never apply the tag — do not
+build release artifacts with it.
 
 ## Docker
 

@@ -22,13 +22,17 @@ make install-macos          # build + overwrite the copy in ~/Applications, as a
 ```
 
 `install-macos` quits a running `CerebrAI`, then swaps a fresh build in for
-the installed bundle (copy first, replace only once the copy succeeds). It
-installs to the per-user `~/Applications` so no admin prompt is needed;
-override with `INSTALL_DIR=/Applications`.
+the installed bundle: the new bundle is copied in beside the old one, then
+the old one is renamed aside, the new one renamed into place, and the old
+one deleted — so a failure before the rename leaves the existing install
+untouched. It installs to the per-user `~/Applications` so no admin prompt
+is needed; override with `INSTALL_DIR=/Applications`.
 
-Unlike `package-macos`, `install-macos` bakes the dev-mode environment into
-the bundle: it passes each `CEREBRAI_*` / `OTEL_*` name from the repo's
-`.env`, plus `CEREBRAI_DB_PATH` pinned to the checkout's `cerebrai.db`, as
+Unlike `package-macos`, `install-macos` builds a full dev build. It compiles
+the binary with the `cerebrai_dev` tag (full chat content logging, as
+`make run-desktop`), and it bakes the dev-mode environment into the bundle:
+each `CEREBRAI_*` / `OTEL_*` name from the repo's `.env`, plus
+`CEREBRAI_DB_PATH` pinned to the checkout's `cerebrai.db`, is passed as
 `--env KEY=VALUE`. `package-app.sh` writes those into `Info.plist` as an
 `LSEnvironment` dict, which LaunchServices applies on a Finder/Dock launch —
 so the installed app shows the Developer preferences section, logs at debug
@@ -36,6 +40,10 @@ level, and reads/writes the same database as `make run-desktop`. The pin is
 needed because a Finder launch runs with working directory `/`, where the
 plain `CEREBRAI_DEV_MODE` path (`./cerebrai.db`) would be unwritable and
 abort startup.
+
+The Makefile passes only the variable *names* through to the recipe and
+reads each value from its own (exported) environment, so a value containing
+whitespace is carried through unmangled.
 
 ## Signing
 
