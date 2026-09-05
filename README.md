@@ -20,14 +20,16 @@ debugging tool, not the primary interface.
   until the worker's IPC transport exists
 - `internal/storage/` — opens cerebrai's SQLite database and keeps its
   schema up to date; see [Data storage](#data-storage)
-- `internal/telemetry/` — OpenTelemetry (traces + metrics) setup
+- `internal/telemetry/` — OpenTelemetry (traces + metrics) setup, plus
+  `LogChatExchange` whose payload is `cerebrai_dev`-gated (see
+  [Chat content logging](#chat-content-logging))
 - `internal/config/` — build metadata injected via `-ldflags`, and the
   `EnvLogLevel` / `EnvDBPath` env var names (`EnvLogLevel` used by
   `internal/desktopui`; `EnvDBPath` by `internal/storage`)
 - `internal/devmode/` — everything active only in a developer's checkout:
   the `CEREBRAI_DEV_MODE` gate (`devmode.Enabled`, used by
-  `internal/desktopui` and `internal/storage`), the local Claude Code model
-  (`devmode/claudecode`), and `cerebrai_dev`-tagged raw chat-content logging
+  `internal/desktopui` and `internal/storage`) and the local Claude Code
+  model (`devmode/claudecode`)
 
 The background worker itself (schedule/trigger evaluation, automation
 execution, memory store, LLM orchestration via Eino) is not yet scaffolded.

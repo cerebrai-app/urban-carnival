@@ -14,7 +14,7 @@ endif
 
 # DEV_TAG builds the local-development variant of the desktop app, which
 # logs full chat message and reply text at the debug level. Never build a
-# release artifact with it; see internal/devmode/chatlog_dev.go.
+# release artifact with it; see internal/telemetry/chatlog_dev.go.
 DEV_TAG := cerebrai_dev
 
 # Build tags for the desktop binary. Empty (release) by default; install-macos

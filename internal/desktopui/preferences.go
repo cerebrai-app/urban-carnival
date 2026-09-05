@@ -6,6 +6,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/cerebrai-app/urban-carnival/internal/devmode"
+	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
 )
 
 // prefOTLPKey is the fyne.Preferences key for the OTLP telemetry toggle.
@@ -73,7 +74,7 @@ func (a *App) developerSettings() fyne.CanvasObject {
 	// A cerebrai_dev build logs raw conversation content at debug level. Say
 	// so plainly: these logs leave the machine in OTLP mode, and a dev build
 	// is otherwise indistinguishable from a normal one.
-	if devmode.ChatContentLogging {
+	if telemetry.ChatContentLogging {
 		warning := widget.NewLabel(
 			"Development build: at the debug log level, full chat message and " +
 				"reply text is written to the logs, which are exported off this " +

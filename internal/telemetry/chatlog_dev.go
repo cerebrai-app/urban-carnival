@@ -1,6 +1,6 @@
 //go:build cerebrai_dev
 
-package devmode
+package telemetry
 
 import "log/slog"
 
