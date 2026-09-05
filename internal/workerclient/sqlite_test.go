@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/cerebrai-app/urban-carnival/internal/config"
 	"github.com/cerebrai-app/urban-carnival/internal/storage"
@@ -31,37 +30,29 @@ func newTestSQLite(t *testing.T) *SQLite {
 		}
 	})
 
-	s, err := NewSQLite(ctx, db)
-	if err != nil {
-		t.Fatalf("NewSQLite: %v", err)
-	}
-	return s
+	return NewSQLite(db)
 }
 
-func TestSQLiteSeedsExampleAutomationsOnce(t *testing.T) {
+func TestSQLiteListsSeededExampleAutomations(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
+	// The 0001 migration seeds two illustrative automations on a fresh
+	// database; ListAutomations should surface them in insertion order.
+	// (Migration idempotency across reopens is covered by
+	// storage.TestOpenAppliesMigrationsAndIsIdempotent.)
 	got, err := s.ListAutomations(ctx)
 	if err != nil {
 		t.Fatalf("ListAutomations: %v", err)
 	}
-	want := len(exampleAutomations(time.Now()))
-	if len(got) != want {
-		t.Fatalf("got %d automations, want %d", len(got), want)
+	if len(got) != 2 {
+		t.Fatalf("got %d automations, want 2", len(got))
 	}
-
-	// Re-wrapping the same db (as a restart would) must not seed again.
-	s2, err := NewSQLite(ctx, s.db)
-	if err != nil {
-		t.Fatalf("second NewSQLite: %v", err)
+	if got[0].ID != "water-plants" || !got[0].Enabled {
+		t.Errorf("first automation = %+v, want id=water-plants enabled=true", got[0])
 	}
-	again, err := s2.ListAutomations(ctx)
-	if err != nil {
-		t.Fatalf("ListAutomations after reopen: %v", err)
-	}
-	if len(again) != len(got) {
-		t.Errorf("automation count changed across reopen: got %d, want %d", len(again), len(got))
+	if got[1].ID != "inbox-summary" || got[1].Enabled {
+		t.Errorf("second automation = %+v, want id=inbox-summary enabled=false", got[1])
 	}
 }
 
@@ -83,11 +74,7 @@ func TestSQLiteSetAutomationEnabledPersists(t *testing.T) {
 	}
 
 	// A fresh SQLite wrapping the same db simulates a restart.
-	restarted, err := NewSQLite(ctx, s.db)
-	if err != nil {
-		t.Fatalf("NewSQLite after update: %v", err)
-	}
-	after, err := restarted.ListAutomations(ctx)
+	after, err := NewSQLite(s.db).ListAutomations(ctx)
 	if err != nil {
 		t.Fatalf("ListAutomations after restart: %v", err)
 	}

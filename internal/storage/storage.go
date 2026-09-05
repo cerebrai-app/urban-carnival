@@ -9,14 +9,13 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
-	// Imported for its side effect of registering the "sqlite" database/sql
-	// driver used by sql.Open below.
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
@@ -63,7 +62,9 @@ func Open(ctx context.Context) (*sql.DB, error) {
 }
 
 // migrate applies every embedded migration not yet recorded in
-// schema_migrations, in filename order, each inside its own transaction.
+// schema_migrations, in filename order, each inside its own transaction. It
+// is safe to run concurrently against the same database (see applyMigration):
+// the migrationApplied check here is only a fast path.
 func migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -111,6 +112,15 @@ func migrationApplied(ctx context.Context, db *sql.DB, name string) (bool, error
 	return count > 0, nil
 }
 
+// applyMigration runs one migration and records it in schema_migrations, all
+// in a single transaction. The outer migrationApplied check in migrate is
+// only a fast path: two processes opening the same fresh database at once can
+// both pass it and reach here. So the transaction records the version first —
+// that INSERT takes the database's write lock, and the version PRIMARY KEY
+// makes the claim exclusive. The process that loses the race finds its own
+// INSERT rejected by the unique constraint and skips the migration instead of
+// running its DDL a second time (which would fail on, e.g., CREATE TABLE) and
+// crashing the launch.
 func applyMigration(ctx context.Context, db *sql.DB, name, sqlText string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -118,11 +128,29 @@ func applyMigration(ctx context.Context, db *sql.DB, name, sqlText string) error
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
 
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, name); err != nil {
+		if isConstraintViolation(err) {
+			// Another process applied this migration between migrate's
+			// check and now; its transaction owns the schema change.
+			return nil
+		}
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, sqlText); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, name); err != nil {
-		return err
-	}
 	return tx.Commit()
+}
+
+// isConstraintViolation reports whether err is a SQLite constraint failure
+// (primary result code SQLITE_CONSTRAINT), such as the unique-violation an
+// INSERT hits when another process has already claimed a migration version.
+func isConstraintViolation(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	// modernc.org/sqlite reports extended result codes (primary code in the
+	// low byte); SQLITE_CONSTRAINT is 19.
+	return sqliteErr.Code()&0xFF == 19
 }

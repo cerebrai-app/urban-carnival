@@ -40,65 +40,11 @@ type SQLite struct {
 	db *sql.DB
 }
 
-// NewSQLite wraps db as a Client. The first time it finds the automations
-// table empty (a fresh database), it seeds it with a couple of illustrative
-// automations so a new install isn't blank.
-func NewSQLite(ctx context.Context, db *sql.DB) (*SQLite, error) {
-	s := &SQLite{db: db}
-	if err := s.seedIfEmpty(ctx); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-// exampleAutomations returns a couple of illustrative automations
-// timestamped at now, used to seed a fresh database.
-func exampleAutomations(now time.Time) []Automation {
-	return []Automation{
-		{
-			ID:          "water-plants",
-			Name:        "Water the plants",
-			Description: "Remind me to water plants every Tuesday morning.",
-			Trigger:     "schedule: 0 9 * * 2",
-			Enabled:     true,
-			UpdatedAt:   now,
-		},
-		{
-			ID:          "inbox-summary",
-			Name:        "Inbox summary",
-			Description: "Summarize my inbox every morning.",
-			Trigger:     "schedule: 0 8 * * *",
-			Enabled:     false,
-			UpdatedAt:   now,
-		},
-	}
-}
-
-func (s *SQLite) seedIfEmpty(ctx context.Context) error {
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM automations`).Scan(&count); err != nil {
-		return fmt.Errorf("count automations: %w", err)
-	}
-	if count > 0 {
-		return nil
-	}
-
-	// OR IGNORE, not INSERT: this count-then-insert isn't atomic across
-	// separate database connections, so two processes opening the same
-	// fresh database at once (e.g. the app launched twice before its first
-	// run has seeded anything) can both reach here. Without OR IGNORE the
-	// loser's insert would fail on the automations primary key and the
-	// second launch would crash instead of just opening the existing data.
-	for _, a := range exampleAutomations(time.Now()) {
-		_, err := s.db.ExecContext(ctx,
-			`INSERT OR IGNORE INTO automations (id, name, description, trigger, enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			a.ID, a.Name, a.Description, a.Trigger, a.Enabled, formatTime(a.UpdatedAt),
-		)
-		if err != nil {
-			return fmt.Errorf("seed automation %q: %w", a.ID, err)
-		}
-	}
-	return nil
+// NewSQLite wraps db as a Client. The database's schema migrations
+// (internal/storage) also seed a couple of illustrative automations so a
+// fresh install isn't blank.
+func NewSQLite(db *sql.DB) *SQLite {
+	return &SQLite{db: db}
 }
 
 // newID returns a random identifier suitable for a session or message
