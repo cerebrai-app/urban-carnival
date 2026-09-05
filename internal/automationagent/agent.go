@@ -21,6 +21,13 @@ import (
 	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
+// maxAgentSteps bounds the tool-calling rounds in one Loop (Eino's react
+// MaxStep). Set explicitly rather than relying on the package default (12) so
+// a runaway model can't spin indefinitely and the budget lives in one place.
+// spawn_agent recursion is bounded separately (see maxSpawnDepth), since each
+// spawned Loop gets its own budget.
+const maxAgentSteps = 20
+
 // ModelProvider is the model the automation writer's loop invokes (DESIGN.md
 // §5.3), potentially many times per task as it calls tools. It's Eino's
 // ToolCallingChatModel, a named interface rather than an alias so it can
@@ -89,6 +96,7 @@ func New(ctx context.Context, provider ModelProvider) (*Loop, error) {
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: provider,
 		ToolsConfig:      compose.ToolsNodeConfig{Tools: tools},
+		MaxStep:          maxAgentSteps,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile agent loop: %w", err)
@@ -102,6 +110,9 @@ func (l *Loop) Respond(ctx context.Context, history []*schema.Message) (*schema.
 	reply, err := l.agent.Generate(ctx, history)
 	if err != nil {
 		return nil, fmt.Errorf("agent loop: %w", err)
+	}
+	if reply == nil {
+		return nil, errors.New("agent loop: no reply produced")
 	}
 	return reply, nil
 }

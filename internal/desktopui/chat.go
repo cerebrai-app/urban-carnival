@@ -54,20 +54,25 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 		},
 	)
 
-	// modelSelect lets the user pick which model the current session's
-	// replies are generated with (DESIGN.md §5's provider abstraction).
-	// suppressModelChange guards SetSelected calls that merely reflect the
-	// newly activated session's stored model, so they don't themselves
-	// trigger a (redundant) SetSessionModel write.
-	var suppressModelChange bool
-	modelSelect := widget.NewSelect(chat.AvailableModels(), func(selected string) {
-		if suppressModelChange || currentSessionID == "" {
+	// modelSelect lets the user pick which model the current session's replies
+	// are generated with (DESIGN.md §5's provider abstraction). The handler
+	// ignores a selection that already matches the current session's stored
+	// model — that's exactly what activateSession's SetSelected produces when
+	// it merely reflects the activated session — so only a real user change
+	// writes back. It's shown only when there are models to choose between.
+	availableModels := chat.AvailableModels()
+	modelSelect := widget.NewSelect(availableModels, func(selected string) {
+		if currentSessionID == "" {
 			return
 		}
 		sessionID := currentSessionID
 		for i := range sessions {
 			if sessions[i].ID == sessionID {
+				if sessions[i].Model == selected {
+					return
+				}
 				sessions[i].Model = selected
+				break
 			}
 		}
 		go func() {
@@ -90,9 +95,7 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 		currentSessionID = session.ID
 		messages = nil
 		refreshHistory()
-		suppressModelChange = true
 		modelSelect.SetSelected(session.Model)
-		suppressModelChange = false
 		go func() {
 			result, err := client.ListMessages(ctx, session.ID)
 			if err != nil {
@@ -230,7 +233,13 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	sendButton := widget.NewButton("Send", send)
 
 	inputRow := container.NewBorder(nil, nil, nil, sendButton, input)
-	chatColumn := container.NewBorder(modelSelect, inputRow, nil, nil, historyScroll)
+	// Only surface the model picker when there's a choice to make; production
+	// builds have no models to offer yet (chat.AvailableModels is empty).
+	var chatHeader fyne.CanvasObject
+	if len(availableModels) > 0 {
+		chatHeader = modelSelect
+	}
+	chatColumn := container.NewBorder(chatHeader, inputRow, nil, nil, historyScroll)
 	sessionsColumn := container.NewBorder(newChatButton, nil, nil, nil, sessionList)
 
 	split := container.NewHSplit(sessionsColumn, chatColumn)

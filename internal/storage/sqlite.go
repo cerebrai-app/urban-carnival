@@ -16,21 +16,14 @@ import (
 // until its first message retitles it (see SendMessage).
 const newSessionTitle = "New chat"
 
-// titleFromContent derives a session's display title from its first
-// message: a single line, truncated so it reads well in a narrow list.
+// sessionTitleMaxRunes caps a derived session title so it reads well in the
+// narrow session list.
+const sessionTitleMaxRunes = 60
+
+// titleFromContent derives a session's display title from its first message:
+// its first line, trimmed and truncated (see app.Summarize).
 func titleFromContent(content string) string {
-	const maxRunes = 60
-	for i, r := range content {
-		if r == '\n' {
-			content = content[:i]
-			break
-		}
-	}
-	runes := []rune(content)
-	if len(runes) > maxRunes {
-		return string(runes[:maxRunes]) + "…"
-	}
-	return content
+	return app.Summarize(content, sessionTitleMaxRunes)
 }
 
 // SQLite is an app.Client backed by the persistent SQLite database this
@@ -184,9 +177,15 @@ func (s *SQLite) ListMessages(ctx context.Context, sessionID string) ([]app.Mess
 	return out, rows.Err()
 }
 
-// insertMessage persists one message row.
-func (s *SQLite) insertMessage(ctx context.Context, m app.Message) error {
-	_, err := s.db.ExecContext(ctx,
+// execer is the ExecContext subset of *sql.DB and *sql.Tx, so a helper can
+// run against either the pool or an open transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// insertMessage persists one message row via q.
+func insertMessage(ctx context.Context, q execer, m app.Message) error {
+	_, err := q.ExecContext(ctx,
 		`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
 		m.ID, m.SessionID, m.Role, m.Content, formatTime(m.CreatedAt),
 	)
@@ -207,9 +206,17 @@ func (s *SQLite) sessionModel(ctx context.Context, sessionID string) (string, er
 	return model, nil
 }
 
-// SendMessage persists the user's message, generates an assistant reply via
-// the session's chat model (DESIGN.md §5.2), persists that too, and bumps the
-// session's updated_at so it sorts to the top of ListSessions.
+// SendMessage generates an assistant reply for the user's message via the
+// session's chat model (DESIGN.md §5.2), then persists the user turn and the
+// reply together and bumps the session's updated_at so it sorts to the top of
+// ListSessions.
+//
+// Nothing is written until the reply succeeds: a failed turn leaves the
+// session exactly as it was, so a retry can't accumulate orphaned user
+// messages that pollute later history. Reply generation also runs before any
+// transaction opens — in dev builds the reply provider calls back into the
+// in-process MCP server (internal/devmode/devmcp), which needs this pool's
+// single connection, so a transaction held across s.reply would deadlock.
 func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (app.Message, error) {
 	model, err := s.sessionModel(ctx, sessionID)
 	if err != nil {
@@ -217,24 +224,17 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 	}
 
 	// The reply is generated from the whole conversation, so load the prior
-	// turns before appending this one.
+	// turns and append this one for the provider without persisting it yet.
 	history, err := s.ListMessages(ctx, sessionID)
 	if err != nil {
 		return app.Message{}, fmt.Errorf("load session history: %w", err)
 	}
+	userMessage := app.Message{ID: newID(), SessionID: sessionID, Role: "user", Content: content, CreatedAt: time.Now()}
 
-	now := time.Now()
-	userMessage := app.Message{ID: newID(), SessionID: sessionID, Role: "user", Content: content, CreatedAt: now}
-	if err := s.insertMessage(ctx, userMessage); err != nil {
-		return app.Message{}, fmt.Errorf("save user message: %w", err)
-	}
-	history = append(history, userMessage)
-
-	replyText, err := s.reply(ctx, model, history)
+	replyText, err := s.reply(ctx, model, append(history, userMessage))
 	if err != nil {
 		return app.Message{}, fmt.Errorf("generate reply: %w", err)
 	}
-
 	reply := app.Message{
 		ID:        newID(),
 		SessionID: sessionID,
@@ -242,24 +242,35 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 		Content:   replyText,
 		CreatedAt: time.Now(),
 	}
-	if err := s.insertMessage(ctx, reply); err != nil {
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return app.Message{}, fmt.Errorf("begin send: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+
+	if err := insertMessage(ctx, tx, userMessage); err != nil {
+		return app.Message{}, fmt.Errorf("save user message: %w", err)
+	}
+	if err := insertMessage(ctx, tx, reply); err != nil {
 		return app.Message{}, fmt.Errorf("save assistant reply: %w", err)
 	}
-
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE sessions SET updated_at = ? WHERE id = ?`, formatTime(reply.CreatedAt), sessionID,
 	); err != nil {
 		return app.Message{}, fmt.Errorf("touch session %q: %w", sessionID, err)
 	}
-
 	// A session starts with a placeholder title; once its first message
 	// arrives, retitle it from that message so the session list is
 	// meaningful instead of a wall of identical placeholders.
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE sessions SET title = ? WHERE id = ? AND title = ?`,
 		titleFromContent(content), sessionID, newSessionTitle,
 	); err != nil {
 		return app.Message{}, fmt.Errorf("retitle session %q: %w", sessionID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return app.Message{}, fmt.Errorf("commit send: %w", err)
 	}
 
 	return reply, nil

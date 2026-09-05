@@ -3,6 +3,7 @@ package automationagent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -116,6 +117,25 @@ func TestProviderProd(t *testing.T) {
 	t.Setenv(devmode.EnvDevMode, "false")
 	if _, ok := Provider().(Unconfigured); !ok {
 		t.Errorf("Provider() = %T, want Unconfigured", Provider())
+	}
+}
+
+func TestSpawnAgentRespectsDepthLimit(t *testing.T) {
+	tl, err := newSpawnAgentTool(echoProvider{})
+	if err != nil {
+		t.Fatalf("newSpawnAgentTool: %v", err)
+	}
+
+	// A context already at the depth cap: the next spawn would exceed it.
+	ctx := withSpawnDepth(context.Background(), maxSpawnDepth)
+	if _, err := tl.InvokableRun(ctx, `{"task":"anything"}`); err == nil || !strings.Contains(err.Error(), "depth") {
+		t.Errorf("InvokableRun at the depth cap: err = %v, want a depth-limit error", err)
+	}
+
+	// One level below the cap still runs.
+	ctx = withSpawnDepth(context.Background(), maxSpawnDepth-1)
+	if _, err := tl.InvokableRun(ctx, `{"task":"anything"}`); err != nil {
+		t.Errorf("InvokableRun below the depth cap: %v", err)
 	}
 }
 

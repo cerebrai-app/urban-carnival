@@ -8,8 +8,25 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 )
+
+// Summarize reduces s to a one-line label: its first line, with surrounding
+// whitespace trimmed and the result truncated to at most maxRunes runes with a
+// trailing ellipsis. It returns "" when that first line is empty or all
+// whitespace. Shared by session titling (internal/storage) and automation
+// naming (internal/devmode/devmcp), which want the same rule.
+func Summarize(s string, maxRunes int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > maxRunes {
+		return string(r[:maxRunes]) + "…"
+	}
+	return s
+}
 
 // Session is one persisted conversation thread. A user may hold several at
 // once (DESIGN.md §2's "Conversation"); each keeps its own message history.

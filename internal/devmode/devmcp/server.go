@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -53,8 +54,9 @@ type Server struct {
 }
 
 // Start builds the MCP server, registers the automation tools, and serves it
-// over streamable HTTP on a random loopback port.
-func Start(_ context.Context, deps Deps) (*Server, error) {
+// over streamable HTTP on a random loopback port. Close the returned Server at
+// shutdown.
+func Start(deps Deps) (*Server, error) {
 	if deps.Store == nil || deps.Writer == nil {
 		return nil, errors.New("devmcp: Store and Writer are required")
 	}
@@ -71,7 +73,7 @@ func Start(_ context.Context, deps Deps) (*Server, error) {
 		return nil, fmt.Errorf("devmcp: listen: %w", err)
 	}
 
-	httpSrv := &http.Server{Handler: mux}
+	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("devmcp: server stopped", "error", err)

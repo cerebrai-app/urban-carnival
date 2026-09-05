@@ -163,11 +163,10 @@ persisted history            storage.SQLite (app.Client)      chat.ModelProvider
   it to completion, and persists whatever it returns (result or status) as
   this turn's assistant reply. Any other tool name coming back would be a
   bug — chat binds nothing else.
-- Converting persisted `[]app.Message` history into `[]*schema.Message` is
-  not implemented yet (the earlier `toSchemaMessages` helper was dropped as
-  dead code) — it lands with the real `SendMessage` wiring (§5.7). The
-  persisted message model has no system-role concept, so that conversion
-  will only distinguish `"assistant"` from everything-else-as-`User`.
+- `chat.Reply` converts persisted `[]app.Message` history into
+  `[]*schema.Message` (`toSchemaMessages`). The persisted message model has
+  no system-role concept, so that conversion only distinguishes
+  `"assistant"` from everything-else-as-`User`.
 - **Provider caveat — claudecode is a different control flow.** For a
   provider with native, caller-orchestrated tool calling, the diagram above
   is literal: `Generate` returns either a reply or a `ToolCalls` message,
@@ -230,10 +229,11 @@ edit_automation(id, requested_change)
   inline and growing its own history.
 - **Recursion:** a spawned `Loop` is built the same way
   (`automationagent.New`), so it gets its own `spawn_agent` tool and can
-  spawn further sub-loops. Depth is
-  bounded only by how many tool-calling rounds the model makes
-  (`react.AgentConfig.MaxStep` per loop) — not configured explicitly today,
-  so it's whatever Eino's react package defaults to (§5.7).
+  spawn further sub-loops. Two bounds apply: nesting is capped at
+  `maxSpawnDepth` (the current depth rides on the `context`, and the tool
+  errors once it would exceed it), and within any one loop the model's
+  tool-calling rounds are capped by `react.AgentConfig.MaxStep`
+  (`maxAgentSteps`, set explicitly in `automationagent.New`).
 - **Adding a tool:** define a typed input struct with `jsonschema` tags,
   wrap the handler with `utils.InferTool(name, description, fn)`, and add it
   to the slice `defaultTools` returns.
@@ -367,9 +367,9 @@ edit_automation(id, requested_change)
   `cmd/cerebrai-desktop` starts `devmcp.Start` and calls
   `devmode.SetMCPBridge` when `devmode.Enabled()`.
 - No tracing/callbacks hooked up to `internal/telemetry` yet.
-- No explicit `MaxStep`/loop-budget configured for the automation writer —
-  a runaway tool-calling loop (e.g. repeated `spawn_agent` recursion) is
-  currently unbounded in practice.
+- Loop budget: `automationagent.New` sets `react.AgentConfig.MaxStep`
+  (`maxAgentSteps`) per loop, and `spawn_agent` nesting is capped at
+  `maxSpawnDepth` (§5.4). A finer per-task token/time budget is still TODO.
 
 ### 5.8 Testing pattern
 
@@ -445,9 +445,10 @@ edit_automation(id, requested_change)
    **Remaining:** the chat-side intent bind + `ToolCalls`/handoff branch for
    native providers (§5.7); `create_automation`/`edit_automation` as the
    writer's own Eino tools and running the writer as a real `Loop` rather
-   than single-shot `Generate` (§5.6); memory read/write tools; a `MaxStep`
-   loop budget; tracing hookup with the existing `internal/telemetry` OTel
-   setup.
+   than single-shot `Generate` (§5.6); memory read/write tools; a finer
+   per-task token/time budget (a per-loop `MaxStep` and `spawn_agent` depth
+   cap are in place, §5.4); tracing hookup with the existing
+   `internal/telemetry` OTel setup.
 4. Define the memory/second-brain data model (what's stored, how retrieved,
    how it interacts with automation context) and how it's exposed to Eino
    as a tool/component.

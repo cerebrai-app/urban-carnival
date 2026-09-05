@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func (s *fakeStore) GetAutomation(_ context.Context, id string) (app.Automation,
 func (s *fakeStore) CreateAutomation(_ context.Context, d app.AutomationDraft) (app.Automation, error) {
 	s.nextID++
 	a := app.Automation{
-		ID:          "auto-" + string(rune('0'+s.nextID)),
+		ID:          fmt.Sprintf("auto-%d", s.nextID),
 		Name:        d.Name,
 		Description: d.Description,
 		Trigger:     d.Trigger,
@@ -185,7 +186,7 @@ func TestCreateAutomationRequiresDescription(t *testing.T) {
 }
 
 func TestServerBridgeShape(t *testing.T) {
-	srv, err := Start(context.Background(), Deps{Store: newFakeStore(), Writer: &fakeWriter{reply: "x"}})
+	srv, err := Start(Deps{Store: newFakeStore(), Writer: &fakeWriter{reply: "x"}})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

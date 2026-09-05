@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cloudwego/eino/schema"
@@ -21,6 +22,9 @@ func Reply(ctx context.Context, provider ModelProvider, history []app.Message) (
 	reply, err := provider.Generate(ctx, toSchemaMessages(history))
 	if err != nil {
 		return "", fmt.Errorf("chat reply: %w", err)
+	}
+	if reply == nil {
+		return "", errors.New("chat reply: provider returned no message")
 	}
 	return reply.Content, nil
 }

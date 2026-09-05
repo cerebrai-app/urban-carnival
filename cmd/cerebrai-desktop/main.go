@@ -39,7 +39,7 @@ func main() {
 	// (DESIGN.md §5.6). A failure here is not fatal: the app still runs, dev
 	// chat just can't author automations.
 	if devmode.Enabled() {
-		srv, err := devmcp.Start(ctx, devmcp.Deps{Store: client, Writer: automationagent.Provider()})
+		srv, err := devmcp.Start(devmcp.Deps{Store: client, Writer: automationagent.Provider()})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "start dev MCP server:", err)
 		} else {

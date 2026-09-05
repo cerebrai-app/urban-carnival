@@ -2,6 +2,7 @@ package devmcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -93,6 +94,9 @@ func runWriter(ctx context.Context, w Writer, task string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("automation writer: %w", err)
 	}
+	if reply == nil {
+		return "", errors.New("automation writer: no reply produced")
+	}
 	return strings.TrimSpace(reply.Content), nil
 }
 
@@ -102,20 +106,14 @@ func textResult(format string, args ...any) *mcp.CallToolResult {
 	}
 }
 
-// deriveName turns a description into a short automation name: its first
-// line, trimmed and truncated.
+// automationNameMaxRunes caps a derived automation name.
+const automationNameMaxRunes = 60
+
+// deriveName turns a description into a short automation name: its first line,
+// trimmed and truncated (see app.Summarize), or a placeholder when empty.
 func deriveName(description string) string {
-	line := description
-	if i := strings.IndexByte(line, '\n'); i >= 0 {
-		line = line[:i]
+	if name := app.Summarize(description, automationNameMaxRunes); name != "" {
+		return name
 	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return "Untitled automation"
-	}
-	const maxRunes = 60
-	if r := []rune(line); len(r) > maxRunes {
-		return string(r[:maxRunes]) + "…"
-	}
-	return line
+	return "Untitled automation"
 }

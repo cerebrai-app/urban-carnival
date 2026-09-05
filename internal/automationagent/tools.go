@@ -9,6 +9,26 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// maxSpawnDepth caps how deeply spawn_agent may nest. Each spawned Loop is
+// built like any other, so it gets its own spawn_agent tool and its own step
+// budget (maxAgentSteps) — without this, a chain of loops could nest without
+// bound. The current depth travels on the context so every sub-loop sees its
+// own level.
+const maxSpawnDepth = 3
+
+// spawnDepthKey is the context key carrying the current spawn_agent nesting
+// depth (0 at the top-level Loop).
+type spawnDepthKey struct{}
+
+func spawnDepth(ctx context.Context) int {
+	d, _ := ctx.Value(spawnDepthKey{}).(int)
+	return d
+}
+
+func withSpawnDepth(ctx context.Context, d int) context.Context {
+	return context.WithValue(ctx, spawnDepthKey{}, d)
+}
+
 // spawnAgentInput is the argument schema the "spawn_agent" tool exposes to
 // the model: a single, self-contained task for the new loop to work on.
 type spawnAgentInput struct {
@@ -23,15 +43,21 @@ type spawnAgentInput struct {
 // the calling loop's own history (DESIGN.md §5, §9.3).
 //
 // Recursion note: the spawned Loop is built the same way as any other, so it
-// gets its own spawn_agent tool and may spawn further sub-loops. Depth is
-// bounded only by however many tool-calling rounds the model chooses to make
-// (react.AgentConfig.MaxStep per loop), not by anything here.
+// gets its own spawn_agent tool and may spawn further sub-loops. Nesting is
+// capped at maxSpawnDepth (tracked on the context); within one loop the model
+// is additionally bounded by react.AgentConfig.MaxStep (maxAgentSteps).
 func newSpawnAgentTool(provider ModelProvider) (tool.InvokableTool, error) {
 	return utils.InferTool(
 		"spawn_agent",
 		"Create a new, independent agent loop to work on a self-contained task and return its final reply. "+
 			"Use this to delegate a sub-task rather than solving it inline.",
 		func(ctx context.Context, in spawnAgentInput) (string, error) {
+			depth := spawnDepth(ctx) + 1
+			if depth > maxSpawnDepth {
+				return "", fmt.Errorf("spawn_agent: recursion depth limit (%d) reached", maxSpawnDepth)
+			}
+			ctx = withSpawnDepth(ctx, depth)
+
 			sub, err := New(ctx, provider)
 			if err != nil {
 				return "", fmt.Errorf("spawn_agent: create loop: %w", err)

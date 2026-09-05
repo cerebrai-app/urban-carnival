@@ -197,13 +197,14 @@ func TestSQLiteSendMessageReplierErrorIsReturned(t *testing.T) {
 	if _, err := s.SendMessage(ctx, session.ID, "hi"); !strings.Contains(err.Error(), "boom") {
 		t.Errorf("SendMessage error = %v, want it to wrap the replier error", err)
 	}
-	// The user message is still persisted even though the reply failed.
+	// A failed reply persists nothing, so a retry won't find an orphaned user
+	// message polluting the session's history.
 	msgs, err := s.ListMessages(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("ListMessages: %v", err)
 	}
-	if len(msgs) != 1 || msgs[0].Role != "user" {
-		t.Errorf("messages = %+v, want just the user turn", msgs)
+	if len(msgs) != 0 {
+		t.Errorf("messages = %+v, want none persisted after a failed reply", msgs)
 	}
 }
 
