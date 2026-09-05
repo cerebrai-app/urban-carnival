@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Template for Cerebrai.app/Contents/Info.plist. package-app.sh substitutes
+<!-- Template for CerebrAI.app/Contents/Info.plist. package-app.sh substitutes
      the @TOKENS@ below. CFBundleIdentifier matches the Fyne app ID passed to
      app.NewWithID in internal/desktopui so preferences land in one place. -->
 <plist version="1.0">

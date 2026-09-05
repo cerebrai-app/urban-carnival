@@ -14,7 +14,7 @@
 #   --version STRING  version string for Info.plist / dmg name (default: dev)
 #   --arch STRING     arch label for the .dmg filename (default: `uname -m`)
 #   --outdir DIR      where to write the bundle/installer (default: dist/macos)
-#   --name STRING     app (and .app bundle) name (default: Cerebrai)
+#   --name STRING     app (and .app bundle) name (default: CerebrAI)
 #   --dmg             also build <name>-<version>-<arch>.dmg
 set -euo pipefail
 
@@ -24,7 +24,7 @@ exe=
 version=dev
 arch=$(uname -m)
 outdir=dist/macos
-app_name=Cerebrai
+app_name=CerebrAI
 bundle_id=app.cerebrai.desktop
 make_dmg=0
 
@@ -67,9 +67,13 @@ rm -rf "$(dirname "$iconset")"
 
 # CFBundleShortVersionString must be one to three dot-separated integers, so
 # drop a leading v and any -prerelease / +build / -dirty suffix. The full
-# string still goes in CFBundleVersion.
+# string still goes in CFBundleVersion. A version that isn't semver-shaped
+# (a bare `git describe` SHA, or "dev") leaves nothing numeric behind, so
+# fall back to 0.0.0.
 short=$(printf '%s' "$version" | sed -E 's/^v//; s/[-+].*$//')
-[ -n "$short" ] || short=0.0.0
+case "$short" in
+"" | *[!0-9.]* | *..* | .* | *.) short=0.0.0 ;;
+esac
 
 sed -e "s|@APP_NAME@|$app_name|g" \
 	-e "s|@BUNDLE_ID@|$bundle_id|g" \
@@ -79,13 +83,12 @@ sed -e "s|@APP_NAME@|$app_name|g" \
 
 printf 'APPL????' >"$app/Contents/PkgInfo"
 
-# Ad-hoc signature. Not a substitute for a Developer ID + notarization (users
-# still need to right-click > Open, or clear the quarantine xattr, on a
-# download), but an arm64 bundle won't launch at all without at least this.
-if command -v codesign >/dev/null; then
-	codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || \
-		echo "warning: ad-hoc codesign failed; the bundle may not launch" >&2
-fi
+# Ad-hoc signature over the whole bundle. The Go linker already ad-hoc signs
+# the arm64 executable it produces, so the app launches without this; it
+# seals Info.plist and the resources we just added around that binary. It is
+# not a substitute for a Developer ID + notarization — a downloaded copy
+# still needs right-click > Open, or a cleared com.apple.quarantine xattr.
+codesign --force --sign - --timestamp=none "$app" >/dev/null
 
 echo "built $app"
 

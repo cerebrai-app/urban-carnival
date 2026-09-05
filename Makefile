@@ -41,23 +41,27 @@ run-desktop:
 	CEREBRAI_DEV_SETTINGS=1 go run -tags $(DEV_TAG) ./cmd/cerebrai-desktop
 
 # macOS app bundle. Wraps the release-style desktop binary (no dev tag) in
-# Cerebrai.app under dist/macos. Add DMG=1 to also build the .dmg installer.
-# macOS only; see build/macos/README.md.
-APP_NAME    ?= Cerebrai
+# CerebrAI.app under dist/macos. Pass DMG=1 to also build the .dmg installer
+# (any non-empty value other than 0). macOS only; see build/macos/README.md.
+APP_NAME    ?= CerebrAI
 INSTALL_DIR ?= /Applications
 .PHONY: package-macos
 package-macos: build-desktop
 	build/macos/package-app.sh --exe bin/cerebrai-desktop --version "$(VERSION)" \
-		--name "$(APP_NAME)" --outdir dist/macos $(if $(DMG),--dmg,)
+		--name "$(APP_NAME)" --outdir dist/macos $(if $(filter-out 0,$(DMG)),--dmg,)
 
 # Overwrite the locally installed app with a fresh local build. Quits a
-# running copy first so the replacement takes effect on next launch.
-# Override the destination with INSTALL_DIR=$HOME/Applications.
+# running copy first so the replacement takes effect on next launch. The new
+# bundle is copied in beside the old one and swapped in only once the copy
+# succeeds, so a failure can't leave you with no installed app. Override the
+# destination with INSTALL_DIR=$HOME/Applications.
 .PHONY: install-macos
 install-macos: package-macos
 	- osascript -e 'quit app "$(APP_NAME)"' 2>/dev/null
+	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app.new"
+	cp -R "dist/macos/$(APP_NAME).app" "$(INSTALL_DIR)/$(APP_NAME).app.new"
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
-	cp -R "dist/macos/$(APP_NAME).app" "$(INSTALL_DIR)/"
+	mv "$(INSTALL_DIR)/$(APP_NAME).app.new" "$(INSTALL_DIR)/$(APP_NAME).app"
 	@echo "installed $(INSTALL_DIR)/$(APP_NAME).app"
 
 .PHONY: test

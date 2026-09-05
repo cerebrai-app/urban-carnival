@@ -15,7 +15,7 @@ name: Release
 #   * desktop  - the Fyne desktop app needs cgo and a native toolchain per
 #                OS, so it is built on a matrix of native runners and each
 #                binary is uploaded onto the release the cli job created.
-#                macOS additionally gets a Cerebrai.app bundle (zipped) and
+#                macOS additionally gets a CerebrAI.app bundle (zipped) and
 #                a .dmg installer, assembled by build/macos/package-app.sh.
 
 on:
@@ -181,13 +181,17 @@ jobs:
           artifacts+=("$archive" "${archive}.sha256")
 
           # macOS: also ship the .app bundle (zipped) and a .dmg installer.
+          # --name/--version/--arch fully determine the paths the script
+          # writes under dist/macos, which we then rename to match the
+          # archive naming above.
           if [ "${{ matrix.goos }}" = "darwin" ]; then
-            build/macos/package-app.sh --exe "$bin" --version "$TAG" \
-              --arch "${{ matrix.goarch }}" --outdir dist/macos --dmg
+            app_name=CerebrAI
+            build/macos/package-app.sh --exe "$bin" --name "$app_name" \
+              --version "$TAG" --arch "${{ matrix.goarch }}" --outdir dist/macos --dmg
             appzip="${name}_app.zip"
             dmg="${name}.dmg"
-            ditto -c -k --keepParent "dist/macos/Cerebrai.app" "$appzip"
-            mv "dist/macos/Cerebrai-${TAG}-${{ matrix.goarch }}.dmg" "$dmg"
+            ditto -c -k --keepParent "dist/macos/${app_name}.app" "$appzip"
+            mv "dist/macos/${app_name}-${TAG}-${{ matrix.goarch }}.dmg" "$dmg"
             sum "$appzip"; sum "$dmg"
             artifacts+=("$appzip" "${appzip}.sha256" "$dmg" "${dmg}.sha256")
           fi
