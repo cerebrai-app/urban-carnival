@@ -15,6 +15,8 @@ name: Release
 #   * desktop  - the Fyne desktop app needs cgo and a native toolchain per
 #                OS, so it is built on a matrix of native runners and each
 #                binary is uploaded onto the release the cli job created.
+#                macOS additionally gets a Cerebrai.app bundle (zipped) and
+#                a .dmg installer, assembled by build/macos/package-app.sh.
 
 on:
   workflow_dispatch:
@@ -160,6 +162,9 @@ jobs:
           bin=$(find dist -type f \( -name cerebrai-desktop -o -name cerebrai-desktop.exe \) | head -n1)
           if [ -z "$bin" ]; then echo "::error::desktop binary not found under dist/"; exit 1; fi
 
+          sum() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi > "$1.sha256"; }
+          artifacts=()
+
           stage=$(mktemp -d)
           cp README.md DESIGN.md "$stage"/
           name="cerebrai-desktop_${TAG}_${{ matrix.label }}"
@@ -172,14 +177,24 @@ jobs:
             tar -czf "${name}.tar.gz" -C "$stage" .
             archive="${name}.tar.gz"
           fi
-          if command -v sha256sum >/dev/null; then
-            sha256sum "$archive" > "${archive}.sha256"
-          else
-            shasum -a 256 "$archive" > "${archive}.sha256"
+          sum "$archive"
+          artifacts+=("$archive" "${archive}.sha256")
+
+          # macOS: also ship the .app bundle (zipped) and a .dmg installer.
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            build/macos/package-app.sh --exe "$bin" --version "$TAG" \
+              --arch "${{ matrix.goarch }}" --outdir dist/macos --dmg
+            appzip="${name}_app.zip"
+            dmg="${name}.dmg"
+            ditto -c -k --keepParent "dist/macos/Cerebrai.app" "$appzip"
+            mv "dist/macos/Cerebrai-${TAG}-${{ matrix.goarch }}.dmg" "$dmg"
+            sum "$appzip"; sum "$dmg"
+            artifacts+=("$appzip" "${appzip}.sha256" "$dmg" "${dmg}.sha256")
           fi
-          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+          printf '%s\n' "${artifacts[@]}" > artifacts.txt
 
       - name: Upload onto the release
-        run: gh release upload "$TAG" "$ARCHIVE" "${ARCHIVE}.sha256" --clobber
+        run: xargs gh release upload "$TAG" --clobber < artifacts.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

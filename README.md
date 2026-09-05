@@ -57,7 +57,12 @@ make test          # go test ./...
 make vet           # go vet ./... (both the default and dev build variants)
 make lint          # golangci-lint run (requires golangci-lint installed locally)
 make fmt           # gofmt -w .
+
+make package-macos # wrap bin/cerebrai-desktop in dist/macos/Cerebrai.app (add DMG=1 for an installer)
+make install-macos # build + overwrite the Cerebrai.app installed in /Applications
 ```
+
+macOS packaging details are in [build/macos/README.md](build/macos/README.md).
 
 ## Configuration
 

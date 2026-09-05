@@ -40,6 +40,26 @@ build-desktop:
 run-desktop:
 	CEREBRAI_DEV_SETTINGS=1 go run -tags $(DEV_TAG) ./cmd/cerebrai-desktop
 
+# macOS app bundle. Wraps the release-style desktop binary (no dev tag) in
+# Cerebrai.app under dist/macos. Add DMG=1 to also build the .dmg installer.
+# macOS only; see build/macos/README.md.
+APP_NAME    ?= Cerebrai
+INSTALL_DIR ?= /Applications
+.PHONY: package-macos
+package-macos: build-desktop
+	build/macos/package-app.sh --exe bin/cerebrai-desktop --version "$(VERSION)" \
+		--name "$(APP_NAME)" --outdir dist/macos $(if $(DMG),--dmg,)
+
+# Overwrite the locally installed app with a fresh local build. Quits a
+# running copy first so the replacement takes effect on next launch.
+# Override the destination with INSTALL_DIR=$HOME/Applications.
+.PHONY: install-macos
+install-macos: package-macos
+	- osascript -e 'quit app "$(APP_NAME)"' 2>/dev/null
+	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
+	cp -R "dist/macos/$(APP_NAME).app" "$(INSTALL_DIR)/"
+	@echo "installed $(INSTALL_DIR)/$(APP_NAME).app"
+
 .PHONY: test
 test:
 	go test ./...
@@ -63,7 +83,7 @@ tidy:
 
 .PHONY: clean
 clean:
-	rm -rf bin
+	rm -rf bin dist
 
 # Reproduces the CI build-test job (build, vet, test) in a container with
 # the Fyne/glfw cgo dependencies installed, matching the ubuntu-latest

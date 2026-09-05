@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template for Cerebrai.app/Contents/Info.plist. package-app.sh substitutes
+     the @TOKENS@ below. CFBundleIdentifier matches the Fyne app ID passed to
+     app.NewWithID in internal/desktopui so preferences land in one place. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>@APP_NAME@</string>
+	<key>CFBundleDisplayName</key>
+	<string>@APP_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@APP_NAME@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleIconFile</key>
+	<string>icon.icns</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@SHORT_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© cerebrai</string>
+</dict>
+</plist>
