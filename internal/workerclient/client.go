@@ -11,8 +11,12 @@ import (
 // Session is one persisted conversation thread. A user may hold several at
 // once (DESIGN.md §2's "Conversation"); each keeps its own message history.
 type Session struct {
-	ID        string
-	Title     string
+	ID    string
+	Title string
+	// Model is the model ID this session's replies should be generated
+	// with (see DefaultModel, AvailableModels, ProviderFor). Empty means
+	// none has been assigned yet.
+	Model     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -51,6 +55,12 @@ type Client interface {
 	// ListSessions returns every conversation thread, most recently active
 	// first.
 	ListSessions(ctx context.Context) ([]Session, error)
+
+	// SetSessionModel changes the model ID a session's future replies
+	// should be generated with. See AvailableModels for the IDs a client
+	// should offer the user, and ProviderFor to resolve one to a
+	// model.Provider.
+	SetSessionModel(ctx context.Context, sessionID, model string) error
 
 	// ListMessages returns every message in the given session, oldest
 	// first.

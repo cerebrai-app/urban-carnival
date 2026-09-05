@@ -55,17 +55,18 @@ func newID() string {
 
 // CreateSession starts a new, empty conversation thread. An empty title
 // falls back to a placeholder that SendMessage replaces once the session's
-// first message arrives.
+// first message arrives. The session's model is initialized to
+// DefaultModel; SetSessionModel changes it afterward.
 func (s *SQLite) CreateSession(ctx context.Context, title string) (Session, error) {
 	if title == "" {
 		title = newSessionTitle
 	}
 	now := time.Now()
-	session := Session{ID: newID(), Title: title, CreatedAt: now, UpdatedAt: now}
+	session := Session{ID: newID(), Title: title, Model: DefaultModel(), CreatedAt: now, UpdatedAt: now}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-		session.ID, session.Title, formatTime(session.CreatedAt), formatTime(session.UpdatedAt),
+		`INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		session.ID, session.Title, session.Model, formatTime(session.CreatedAt), formatTime(session.UpdatedAt),
 	)
 	if err != nil {
 		return Session{}, fmt.Errorf("create session: %w", err)
@@ -77,7 +78,7 @@ func (s *SQLite) CreateSession(ctx context.Context, title string) (Session, erro
 // first, so the session list surfaces whatever the user was just doing.
 func (s *SQLite) ListSessions(ctx context.Context) ([]Session, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC`)
+		`SELECT id, title, model, created_at, updated_at FROM sessions ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
@@ -87,7 +88,7 @@ func (s *SQLite) ListSessions(ctx context.Context) ([]Session, error) {
 	for rows.Next() {
 		var sess Session
 		var createdAt, updatedAt string
-		if err := rows.Scan(&sess.ID, &sess.Title, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Model, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
 		if sess.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
@@ -99,6 +100,26 @@ func (s *SQLite) ListSessions(ctx context.Context) ([]Session, error) {
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+// SetSessionModel updates which model a session's future replies should be
+// generated with. It does not bump updated_at: switching models is not
+// "activity" that should reorder the session list.
+func (s *SQLite) SetSessionModel(ctx context.Context, sessionID, model string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET model = ? WHERE id = ?`, model, sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("set model for session %q: %w", sessionID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set model for session %q: %w", sessionID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	return nil
 }
 
 // ListMessages returns every message in the given session, oldest first.

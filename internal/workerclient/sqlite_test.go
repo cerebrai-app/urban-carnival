@@ -139,8 +139,52 @@ func TestSQLiteCreateSessionDefaultsTitle(t *testing.T) {
 	if session.ID == "" {
 		t.Error("ID not set")
 	}
+	// newTestSQLite enables dev settings, so DefaultModel is ModelClaudeCode.
+	if session.Model != ModelClaudeCode {
+		t.Errorf("Model = %q, want %q", session.Model, ModelClaudeCode)
+	}
 	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
 		t.Error("CreatedAt/UpdatedAt not set")
+	}
+}
+
+func TestSQLiteSetSessionModelPersists(t *testing.T) {
+	s := newTestSQLite(t)
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	if err := s.SetSessionModel(ctx, session.ID, "some-other-model"); err != nil {
+		t.Fatalf("SetSessionModel: %v", err)
+	}
+
+	got, err := s.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(got))
+	}
+	if got[0].Model != "some-other-model" {
+		t.Errorf("Model = %q, want %q", got[0].Model, "some-other-model")
+	}
+	if !got[0].UpdatedAt.Equal(session.UpdatedAt) {
+		t.Errorf("UpdatedAt changed from %v to %v; switching models should not bump it", session.UpdatedAt, got[0].UpdatedAt)
+	}
+}
+
+func TestSQLiteSetSessionModelUnknownID(t *testing.T) {
+	s := newTestSQLite(t)
+
+	err := s.SetSessionModel(context.Background(), "nope", "claude-code")
+	if err == nil {
+		t.Fatal("expected an error for an unknown session ID")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error should name the missing ID, got: %v", err)
 	}
 }
 

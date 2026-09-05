@@ -52,6 +52,30 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 		},
 	)
 
+	// modelSelect lets the user pick which model the current session's
+	// replies are generated with (DESIGN.md §5's provider abstraction).
+	// suppressModelChange guards SetSelected calls that merely reflect the
+	// newly activated session's stored model, so they don't themselves
+	// trigger a (redundant) SetSessionModel write.
+	var suppressModelChange bool
+	modelSelect := widget.NewSelect(workerclient.AvailableModels(), func(selected string) {
+		if suppressModelChange || currentSessionID == "" {
+			return
+		}
+		sessionID := currentSessionID
+		for i := range sessions {
+			if sessions[i].ID == sessionID {
+				sessions[i].Model = selected
+			}
+		}
+		go func() {
+			if err := client.SetSessionModel(ctx, sessionID, selected); err != nil {
+				slog.Error("set session model", "session_id", sessionID, "error", err)
+			}
+		}()
+	})
+	modelSelect.PlaceHolder = "Model"
+
 	// activateSession fetches a session's messages and, once loaded, makes
 	// it the active conversation. A response is discarded if the user has
 	// since switched to a different session. Idempotent: a no-op if session
@@ -64,6 +88,9 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 		currentSessionID = session.ID
 		messages = nil
 		refreshHistory()
+		suppressModelChange = true
+		modelSelect.SetSelected(session.Model)
+		suppressModelChange = false
 		go func() {
 			result, err := client.ListMessages(ctx, session.ID)
 			if err != nil {
@@ -201,7 +228,7 @@ func newChatView(ctx context.Context, client workerclient.Client) fyne.CanvasObj
 	sendButton := widget.NewButton("Send", send)
 
 	inputRow := container.NewBorder(nil, nil, nil, sendButton, input)
-	chatColumn := container.NewBorder(nil, inputRow, nil, nil, historyScroll)
+	chatColumn := container.NewBorder(modelSelect, inputRow, nil, nil, historyScroll)
 	sessionsColumn := container.NewBorder(newChatButton, nil, nil, nil, sessionList)
 
 	split := container.NewHSplit(sessionsColumn, chatColumn)
