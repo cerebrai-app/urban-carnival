@@ -34,36 +34,6 @@ func TestLogLevel(t *testing.T) {
 	}
 }
 
-func TestDevSettingsEnabled(t *testing.T) {
-	tests := []struct {
-		name  string
-		set   bool
-		value string
-		want  bool
-	}{
-		{name: "unset", want: false},
-		{name: "empty", set: true, value: "", want: false},
-		{name: "1", set: true, value: "1", want: true},
-		{name: "true", set: true, value: "true", want: true},
-		{name: "0", set: true, value: "0", want: false},
-		{name: "false", set: true, value: "false", want: false},
-		{name: "non-boolean stays hidden", set: true, value: "yes please", want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.set {
-				t.Setenv(envDevSettings, tt.value)
-			} else {
-				unset(t, envDevSettings)
-			}
-			if got := devSettingsEnabled(); got != tt.want {
-				t.Errorf("devSettingsEnabled() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 // unset clears key for the duration of the test. t.Setenv already restores
 // the previous value at cleanup, so setting then clearing is enough.
 func unset(t *testing.T, key string) {

@@ -30,6 +30,10 @@ go.work.sum
 # env file
 .env
 
+# Development-mode SQLite database (see internal/storage.Path) and its
+# SQLite sidecar files.
+/cerebrai.db*
+
 # Editor/IDE
 # .idea/
 # .vscode/

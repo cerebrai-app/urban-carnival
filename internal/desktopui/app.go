@@ -15,8 +15,8 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 
+	"github.com/cerebrai-app/urban-carnival/internal/config"
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
-	"github.com/cerebrai-app/urban-carnival/internal/version"
 	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
 )
 
@@ -117,7 +117,7 @@ func (a *App) applyTelemetry() {
 	// failure the previous configuration simply keeps running; shutting down
 	// first would leave slog.Default() bound to dead providers and silently
 	// drop every log line from here on, including this error.
-	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", version.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel()})
+	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", config.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel()})
 	if err != nil {
 		reportTelemetryProblem("setup telemetry", err)
 		return

@@ -1,5 +1,8 @@
-// Package version holds build metadata injected at link time via -ldflags.
-package version
+// Package config holds cerebrai's build- and environment-derived
+// configuration: version metadata injected at link time via -ldflags (see
+// version.go) and the CEREBRAI_* environment variables that switch behavior
+// between a developer's checkout and a real build (see env.go).
+package config
 
 var (
 	// Version is the semantic version of the build, set via -ldflags.
