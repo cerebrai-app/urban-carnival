@@ -4,8 +4,9 @@
 // turn. It sits between the seed task it's handed and a pluggable
 // ModelProvider (Provider resolves the worker-global one). Orchestration is
 // built on Eino's ReAct agent, so the loop can call tools (see tools.go) as
-// part of producing its result, with tracing layered on later without
-// reshaping this package's callers.
+// part of producing its result. Each Respond call opens its own root
+// OpenTelemetry trace (see tracer), linked back to whatever invoked it,
+// exported through the global provider internal/telemetry configures.
 package automationagent
 
 import (
@@ -17,9 +18,18 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
+
+// tracer emits spans for this package under the global provider configured by
+// internal/telemetry.
+var tracer = otel.Tracer("github.com/cerebrai-app/urban-carnival/internal/automationagent")
 
 // maxAgentSteps bounds the tool-calling rounds in one Loop (Eino's react
 // MaxStep). Set explicitly rather than relying on the package default (12) so
@@ -106,13 +116,40 @@ func New(ctx context.Context, provider ModelProvider) (*Loop, error) {
 
 // Respond runs the seed messages through the loop — including any tool calls
 // the model makes along the way — and returns its final reply message.
+//
+// Each call opens its own root trace so one loop's work — including any tools
+// it drives — is a self-contained trace rather than a deep branch of whatever
+// invoked it. Whatever span was active in ctx (the chat turn that handed off,
+// or the calling loop for a spawn_agent delegation) is preserved as a
+// follows_from link, so the traces stay navigable from one another.
+// spawn_agent.depth records how deep a spawn_agent delegation chain runs.
 func (l *Loop) Respond(ctx context.Context, history []*schema.Message) (*schema.Message, error) {
+	opts := []trace.SpanStartOption{
+		trace.WithNewRoot(),
+		trace.WithAttributes(
+			attribute.Int("automationagent.seed_messages", len(history)),
+			attribute.Int("automationagent.max_steps", maxAgentSteps),
+			attribute.Int("spawn_agent.depth", spawnDepth(ctx)),
+		),
+	}
+	if trace.SpanContextFromContext(ctx).IsValid() {
+		opts = append(opts, trace.WithLinks(trace.LinkFromContext(ctx, semconv.OpenTracingRefTypeFollowsFrom)))
+	}
+
+	ctx, span := tracer.Start(ctx, "automation-agent loop", opts...)
+	defer span.End()
+
 	reply, err := l.agent.Generate(ctx, history)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("agent loop: %w", err)
 	}
 	if reply == nil {
-		return nil, errors.New("agent loop: no reply produced")
+		err := errors.New("agent loop: no reply produced")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	return reply, nil
 }

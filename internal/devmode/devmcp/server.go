@@ -62,6 +62,7 @@ func Start(deps Deps) (*Server, error) {
 	}
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: config.Version}, nil)
+	mcpServer.AddReceivingMiddleware(tracingMiddleware)
 	registerTools(mcpServer, deps)
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)

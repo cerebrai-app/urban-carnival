@@ -14,4 +14,8 @@
 // Transport is streamable HTTP on a random 127.0.0.1 port; ConfigJSON
 // produces the inline --mcp-config document and ToolNames the qualified tool
 // names that internal/devmode.ChatProvider hands to claudecode.WithMCP.
+//
+// Every incoming MCP method call is wrapped in an OpenTelemetry span by
+// tracingMiddleware (see tracing.go), exported through the global provider
+// that internal/telemetry configures.
 package devmcp

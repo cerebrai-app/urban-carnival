@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/cerebrai-app/urban-carnival/internal/app"
 )
@@ -87,11 +88,16 @@ func registerTools(s *mcp.Server, deps Deps) {
 // runWriter asks the automation writer to author source for task and returns
 // the trimmed reply text.
 func runWriter(ctx context.Context, w Writer, task string) (string, error) {
+	ctx, span := tracer.Start(ctx, "automation-writer generate")
+	defer span.End()
+
 	reply, err := w.Generate(ctx, []*schema.Message{
 		{Role: schema.System, Content: authoringSystemPrompt},
 		{Role: schema.User, Content: task},
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", fmt.Errorf("automation writer: %w", err)
 	}
 	if reply == nil {
