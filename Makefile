@@ -16,9 +16,9 @@ endif
 DEV_TAG := cerebrai_dev
 
 LDFLAGS := -s -w \
-	-X github.com/cerebrai-app/urban-carnival/internal/version.Version=$(VERSION) \
-	-X github.com/cerebrai-app/urban-carnival/internal/version.Commit=$(COMMIT) \
-	-X github.com/cerebrai-app/urban-carnival/internal/version.Date=$(DATE)
+	-X github.com/cerebrai-app/urban-carnival/internal/config.Version=$(VERSION) \
+	-X github.com/cerebrai-app/urban-carnival/internal/config.Commit=$(COMMIT) \
+	-X github.com/cerebrai-app/urban-carnival/internal/config.Date=$(DATE)
 
 .PHONY: build
 build:
@@ -32,11 +32,13 @@ run:
 build-desktop:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/cerebrai-desktop ./cmd/cerebrai-desktop
 
-# Runs against the mock worker client, with full chat content logging
-# compiled in (visible at the debug log level, set in Preferences).
+# Runs against the SQLite-backed workerclient (see internal/storage), with
+# full chat content logging compiled in (visible at the debug log level, set
+# in Preferences). CEREBRAI_DEV_SETTINGS also keeps the database in the repo
+# instead of the OS's per-user application data directory (internal/storage.Path).
 .PHONY: run-desktop
 run-desktop:
-	go run -tags $(DEV_TAG) ./cmd/cerebrai-desktop
+	CEREBRAI_DEV_SETTINGS=1 go run -tags $(DEV_TAG) ./cmd/cerebrai-desktop
 
 .PHONY: test
 test:

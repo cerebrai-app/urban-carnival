@@ -6,15 +6,41 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"os"
 
 	"github.com/cerebrai-app/urban-carnival/internal/desktopui"
+	"github.com/cerebrai-app/urban-carnival/internal/storage"
 	"github.com/cerebrai-app/urban-carnival/internal/workerclient"
 )
 
 func main() {
-	// TODO: replace with a client that talks to the background worker's
-	// local API once its transport is decided (DESIGN.md §3, §9).
-	client := workerclient.NewMock()
+	ctx := context.Background()
 
-	desktopui.New(client).Run(context.Background())
+	// TODO: replace with a client that talks to the background worker's
+	// local API once its transport is decided (DESIGN.md §3, §9). Until then
+	// automations are persisted locally via SQLite (internal/storage), so
+	// they survive a restart; see workerclient.SQLite.
+	db, err := storage.Open(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "open database:", err)
+		os.Exit(1)
+	}
+
+	client, err := workerclient.NewSQLite(ctx, db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "init storage:", err)
+		closeDB(db)
+		os.Exit(1)
+	}
+	defer closeDB(db)
+
+	desktopui.New(client).Run(ctx)
+}
+
+func closeDB(db *sql.DB) {
+	if err := db.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, "close database:", err)
+	}
 }

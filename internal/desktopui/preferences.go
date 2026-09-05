@@ -4,6 +4,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/cerebrai-app/urban-carnival/internal/config"
 )
 
 // prefOTLPKey is the fyne.Preferences key for the OTLP telemetry toggle.
@@ -21,7 +23,7 @@ func (a *App) showPreferencesWindow() {
 	w.Resize(fyne.NewSize(440, 200))
 
 	content := container.NewVBox()
-	if devSettingsEnabled() {
+	if config.DevEnabled() {
 		content.Add(a.developerSettings())
 	} else {
 		// Everything here is currently a developer control. User-facing
@@ -37,8 +39,8 @@ func (a *App) showPreferencesWindow() {
 }
 
 // developerSettings builds the Developer section, shown only when
-// envDevSettings is set. These are diagnostic controls, not things a user
-// should have to reason about.
+// config.EnvDevSettings is set. These are diagnostic controls, not things a
+// user should have to reason about.
 func (a *App) developerSettings() fyne.CanvasObject {
 	heading := widget.NewLabel("Developer")
 	heading.TextStyle = fyne.TextStyle{Bold: true}

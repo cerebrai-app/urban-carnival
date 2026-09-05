@@ -14,13 +14,37 @@ debugging tool, not the primary interface.
 - `internal/desktopui/` — native desktop UI (chat + automation management),
   built with [Fyne](https://fyne.io)
 - `internal/workerclient/` — client interface to the background worker's
-  local API, used by the desktop UI; `Mock` stands in until the worker's
-  IPC transport exists
+  local API, used by the desktop UI; the SQLite-backed `SQLite` stands in
+  until the worker's IPC transport exists
+- `internal/storage/` — opens cerebrai's SQLite database and keeps its
+  schema up to date; see [Data storage](#data-storage)
 - `internal/telemetry/` — OpenTelemetry (traces + metrics) setup
-- `internal/version/` — build metadata injected via `-ldflags`
+- `internal/config/` — build metadata injected via `-ldflags`, and the
+  `CEREBRAI_*` env var names (`EnvDevSettings` is shared by
+  `internal/desktopui` and `internal/storage`; `EnvLogLevel` by
+  `internal/desktopui`)
 
 The background worker itself (schedule/trigger evaluation, automation
 execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
+
+## Data storage
+
+The desktop app persists its data (automations, and chat sessions with
+their message history) in a SQLite database, opened via
+`internal/storage.Open`. Where that database lives
+depends on `CEREBRAI_DEV_SETTINGS` (see [Configuration](#configuration)),
+the same flag that reveals the Developer preferences section:
+
+- **`CEREBRAI_DEV_SETTINGS` set** (`make run-desktop` sets it for you):
+  `./cerebrai.db` at the repo root. It's gitignored — inspect it with
+  `sqlite3 cerebrai.db`, or delete it to start fresh.
+- **Unset** (the default — `make build-desktop`, or a packaged release): the
+  OS's per-user application data directory, e.g.
+  `~/Library/Application Support/cerebrai/cerebrai.db` on macOS.
+
+Until the background worker exists, `cmd/cerebrai-desktop` opens this
+database directly and uses `workerclient.SQLite` as its `Client`, so
+automations and chat history survive restarts.
 
 ## Develop
 
@@ -28,7 +52,7 @@ execution, memory store, LLM orchestration via Eino) is not yet scaffolded.
 make build         # build ./bin/cerebrai
 make run           # go run the CLI
 make build-desktop # build ./bin/cerebrai-desktop
-make run-desktop   # go run the desktop app (dev build, against a mock worker client)
+make run-desktop   # go run the desktop app (dev build, SQLite-backed, see Data storage)
 make test          # go test ./...
 make vet           # go vet ./... (both the default and dev build variants)
 make lint          # golangci-lint run (requires golangci-lint installed locally)
@@ -41,7 +65,7 @@ The desktop app reads these environment variables at startup:
 
 | Variable | Values | Default | Effect |
 | --- | --- | --- | --- |
-| `CEREBRAI_DEV_SETTINGS` | `1` / `true` / `0` / `false` | unset (off) | Shows the **Developer** section of the Preferences window: the OTLP export toggle and dev-build status. With it unset, users see no developer controls. |
+| `CEREBRAI_DEV_SETTINGS` | `1` / `true` / `0` / `false` | unset (off) | Shows the **Developer** section of the Preferences window (the OTLP export toggle and dev-build status), and stores the SQLite database in the repo root instead of the OS's per-user application data directory (see [Data storage](#data-storage)). `make run-desktop` sets this for you. |
 | `CEREBRAI_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` | Minimum log level. Not settable or shown in the UI. An unrecognized value warns on stderr and falls back to the default. |
 | `OTEL_EXPORTER_OTLP_*` | see [Telemetry](#telemetry) | — | Standard OpenTelemetry exporter configuration. |
 

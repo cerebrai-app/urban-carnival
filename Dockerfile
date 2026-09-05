@@ -14,9 +14,9 @@ ARG DATE=unknown
 RUN CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags "-s -w \
-      -X github.com/cerebrai-app/urban-carnival/internal/version.Version=${VERSION} \
-      -X github.com/cerebrai-app/urban-carnival/internal/version.Commit=${COMMIT} \
-      -X github.com/cerebrai-app/urban-carnival/internal/version.Date=${DATE}" \
+      -X github.com/cerebrai-app/urban-carnival/internal/config.Version=${VERSION} \
+      -X github.com/cerebrai-app/urban-carnival/internal/config.Commit=${COMMIT} \
+      -X github.com/cerebrai-app/urban-carnival/internal/config.Date=${DATE}" \
     -o /out/cerebrai ./cmd/cerebrai
 
 FROM gcr.io/distroless/static-debian12:nonroot

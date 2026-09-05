@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cerebrai-app/urban-carnival/internal/config"
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
-	"github.com/cerebrai-app/urban-carnival/internal/version"
 )
 
 type shutdownKey struct{}
@@ -32,7 +32,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			shutdown, err := telemetry.Setup(cmd.Context(), "cerebrai", version.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel})
+			shutdown, err := telemetry.Setup(cmd.Context(), "cerebrai", config.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel})
 			if err != nil {
 				return fmt.Errorf("setup telemetry: %w", err)
 			}

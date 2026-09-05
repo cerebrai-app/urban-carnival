@@ -4,23 +4,16 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
+
+	"github.com/cerebrai-app/urban-carnival/internal/config"
 )
 
-// Environment variables configuring the desktop app. These are developer
-// controls rather than user preferences: they are read at startup, are not
-// persisted alongside the user's settings, and are documented in README.md.
-const (
-	// envLogLevel sets the minimum slog level the app emits. Unset or empty
-	// means defaultLogLevel.
-	envLogLevel = "CEREBRAI_LOG_LEVEL"
-
-	// envDevSettings reveals the Developer section of the Preferences window
-	// when set to a value strconv.ParseBool accepts as true (1, t, true).
-	// Unset, empty, or false means hidden.
-	envDevSettings = "CEREBRAI_DEV_SETTINGS"
-)
+// envLogLevel sets the minimum slog level the app emits. Unset or empty
+// means defaultLogLevel. It is a developer control rather than a user
+// preference: read once at startup, not persisted alongside the user's
+// settings, and documented in README.md.
+const envLogLevel = config.EnvLogLevel
 
 // defaultLogLevel matches the CLI's --log-level default.
 const defaultLogLevel = "info"
@@ -44,20 +37,4 @@ func logLevel() string {
 		return defaultLogLevel
 	}
 	return level
-}
-
-// devSettingsEnabled reports whether the Preferences window should show its
-// Developer section.
-func devSettingsEnabled() bool {
-	value, ok := os.LookupEnv(envDevSettings)
-	if !ok || value == "" {
-		return false
-	}
-	enabled, err := strconv.ParseBool(value)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %q is not a boolean, developer settings stay hidden\n",
-			envDevSettings, value)
-		return false
-	}
-	return enabled
 }

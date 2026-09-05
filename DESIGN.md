@@ -60,7 +60,7 @@ product surface. The product surface is a native desktop app talking to a
 background worker/daemon that owns execution, scheduling, and memory.
 
 **Background worker: Go**, reusing the existing scaffold
-(`internal/telemetry`, `internal/version`) and built around
+(`internal/telemetry`, `internal/config`) and built around
 [Eino](https://github.com/cloudwego/eino) (CloudWeGo's Go framework for LLM
 applications) for the agent loop — orchestration/composition of the
 conversation flow, tool calling, and model invocation. This resolves the
