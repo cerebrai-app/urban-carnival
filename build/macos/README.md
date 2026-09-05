@@ -18,12 +18,13 @@ source of truth.
 ```sh
 make package-macos          # -> dist/macos/CerebrAI.app
 make package-macos DMG=1    # also -> dist/macos/CerebrAI-<version>-<arch>.dmg
-make install-macos          # build + overwrite the copy in /Applications
+make install-macos          # build + overwrite the copy in ~/Applications
 ```
 
 `install-macos` quits a running `CerebrAI`, then swaps a fresh build in for
-the installed bundle (copy first, replace only once the copy succeeds).
-Override the destination with `INSTALL_DIR=$HOME/Applications`.
+the installed bundle (copy first, replace only once the copy succeeds). It
+installs to the per-user `~/Applications` so no admin prompt is needed;
+override with `INSTALL_DIR=/Applications`.
 
 ## Signing
 
