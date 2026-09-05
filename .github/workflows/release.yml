@@ -1,0 +1,185 @@
+name: Release
+
+# One workflow that tags a release and publishes it.
+#
+# Run it from the Actions tab with a `version` input: the `prepare` job
+# validates the version, creates the tag and pushes it, then the build jobs
+# run in the same workflow run. (A tag pushed with the built-in GITHUB_TOKEN
+# does not start a second workflow run, which is exactly what we want here.)
+# Pushing a matching tag by hand also triggers the build jobs directly.
+#
+#   * prepare  - resolve/create the tag.
+#   * cli      - `goreleaser release` cross-compiles the pure-Go CLI for
+#                every OS/arch and creates the GitHub release with its
+#                archives, checksums and changelog.
+#   * desktop  - the Fyne desktop app needs cgo and a native toolchain per
+#                OS, so it is built on a matrix of native runners and each
+#                binary is uploaded onto the release the cli job created.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 0.1.0 or 0.1.0-alpha1 (a leading v is stripped)"
+        required: true
+        type: string
+      ref:
+        description: "Branch or commit to tag"
+        required: true
+        default: main
+        type: string
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            tag="${INPUT_VERSION#v}"   # existing tags in this repo have no leading v
+            if ! [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::'$tag' is not a valid semantic version (expected MAJOR.MINOR.PATCH[-prerelease])"
+              exit 1
+            fi
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $tag"
+
+      - name: Checkout
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/$TAG"
+          echo "### Pushed tag \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+
+  cli:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: GoReleaser (CLI + GitHub release)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  desktop:
+    needs: [prepare, cli]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, goos: linux, goarch: amd64, label: linux_amd64 }
+          - { runner: macos-15-intel, goos: darwin, goarch: amd64, label: macos_amd64 }
+          - { runner: macos-latest, goos: darwin, goarch: arm64, label: macos_arm64 }
+          - { runner: windows-latest, goos: windows, goarch: amd64, label: windows_amd64 }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Fyne (via go-gl/glfw) cgo-compiles both the X11 and Wayland GLFW
+      # backends, so both sets of dev headers are needed. Matches ci.yml.
+      - name: Install Fyne build dependencies (Linux)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+
+      - name: Check C toolchain (Windows)
+        if: matrix.goos == 'windows'
+        run: gcc --version
+
+      - name: Build desktop app
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: build --config .goreleaser.desktop.yaml --single-target --clean --id cerebrai-desktop
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          bin=$(find dist -type f \( -name cerebrai-desktop -o -name cerebrai-desktop.exe \) | head -n1)
+          if [ -z "$bin" ]; then echo "::error::desktop binary not found under dist/"; exit 1; fi
+
+          stage=$(mktemp -d)
+          cp README.md DESIGN.md "$stage"/
+          name="cerebrai-desktop_${TAG}_${{ matrix.label }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp "$bin" "$stage/cerebrai-desktop.exe"
+            ( cd "$stage" && zip -qr - . ) > "${name}.zip"
+            archive="${name}.zip"
+          else
+            cp "$bin" "$stage/cerebrai-desktop"
+            tar -czf "${name}.tar.gz" -C "$stage" .
+            archive="${name}.tar.gz"
+          fi
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$archive" > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+          fi
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Upload onto the release
+        run: gh release upload "$TAG" "$ARCHIVE" "${ARCHIVE}.sha256" --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
