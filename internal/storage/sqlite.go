@@ -46,10 +46,13 @@ var _ app.Client = (*SQLite)(nil)
 // Replier generates an assistant reply for a session from its model ID, the
 // provider's conversation handle from the previous turn (priorHandle, empty
 // on the first), and the full message history (oldest first, including the
-// just-sent user message). It returns the reply text and the provider's
-// conversation handle to persist and replay next turn (empty when the
-// provider has no such concept).
-type Replier func(ctx context.Context, model, priorHandle string, history []app.Message) (reply, handle string, err error)
+// just-sent user message). While the reply is generated it forwards
+// incremental reasoning and answer text to onChunk (called only from the
+// calling goroutine; nil to ignore). It returns the full reply text, the
+// full reasoning text (empty when the provider surfaces none), and the
+// provider's conversation handle to persist and replay next turn (empty when
+// the provider has no such concept).
+type Replier func(ctx context.Context, model, priorHandle string, history []app.Message, onChunk func(app.ReplyChunk)) (reply, thoughts, handle string, err error)
 
 // Option configures a SQLite at construction time.
 type Option func(*SQLite)
@@ -61,12 +64,12 @@ func WithReplier(r Replier) Option {
 }
 
 // defaultReplier resolves the session's model to a chat provider and asks it
-// for a single reply (DESIGN.md §5.2). In dev builds the provider is the
-// local Claude Code CLI wired to the in-process MCP server (see
+// for a single streamed reply (DESIGN.md §5.2). In dev builds the provider is
+// the local Claude Code CLI wired to the in-process MCP server (see
 // internal/devmode/devmcp); otherwise it's chat.Unconfigured and this
 // returns chat.ErrNotConfigured.
-func defaultReplier(ctx context.Context, model, priorHandle string, history []app.Message) (string, string, error) {
-	return chat.Reply(ctx, chat.ProviderFor(model), history, priorHandle)
+func defaultReplier(ctx context.Context, model, priorHandle string, history []app.Message, onChunk func(app.ReplyChunk)) (string, string, string, error) {
+	return chat.ReplyStream(ctx, chat.ProviderFor(model), history, priorHandle, onChunk)
 }
 
 // NewSQLite wraps db as an app.Client. In a developer's checkout the
@@ -159,7 +162,7 @@ func (s *SQLite) SetSessionModel(ctx context.Context, sessionID, model string) e
 // ListMessages returns every message in the given session, oldest first.
 func (s *SQLite) ListMessages(ctx context.Context, sessionID string) ([]app.Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at, rowid`,
+		`SELECT id, session_id, role, content, thoughts, created_at FROM messages WHERE session_id = ? ORDER BY created_at, rowid`,
 		sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
@@ -170,7 +173,7 @@ func (s *SQLite) ListMessages(ctx context.Context, sessionID string) ([]app.Mess
 	for rows.Next() {
 		var m app.Message
 		var createdAt string
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &createdAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &m.Thoughts, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		if m.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
@@ -190,8 +193,8 @@ type execer interface {
 // insertMessage persists one message row via q.
 func insertMessage(ctx context.Context, q execer, m app.Message) error {
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
-		m.ID, m.SessionID, m.Role, m.Content, formatTime(m.CreatedAt),
+		`INSERT INTO messages (id, session_id, role, content, thoughts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		m.ID, m.SessionID, m.Role, m.Content, m.Thoughts, formatTime(m.CreatedAt),
 	)
 	return err
 }
@@ -212,10 +215,11 @@ func (s *SQLite) sessionModelAndHandle(ctx context.Context, sessionID string) (m
 	return model, handle, nil
 }
 
-// SendMessage generates an assistant reply for the user's message via the
-// session's chat model (DESIGN.md §5.2), then persists the user turn and the
-// reply together and bumps the session's updated_at so it sorts to the top of
-// ListSessions.
+// StreamMessage generates an assistant reply for the user's message via the
+// session's chat model (DESIGN.md §5.2), streaming the model's reasoning and
+// answer to onChunk as they arrive, then persists the user turn and the reply
+// (including its Thoughts) together and bumps the session's updated_at so it
+// sorts to the top of ListSessions.
 //
 // Nothing is written until the reply succeeds: a failed turn leaves the
 // session exactly as it was, so a retry can't accumulate orphaned user
@@ -223,7 +227,7 @@ func (s *SQLite) sessionModelAndHandle(ctx context.Context, sessionID string) (m
 // transaction opens — in dev builds the reply provider calls back into the
 // in-process MCP server (internal/devmode/devmcp), which needs this pool's
 // single connection, so a transaction held across s.reply would deadlock.
-func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (app.Message, error) {
+func (s *SQLite) StreamMessage(ctx context.Context, sessionID, content string, onChunk func(app.ReplyChunk)) (app.Message, error) {
 	model, priorHandle, err := s.sessionModelAndHandle(ctx, sessionID)
 	if err != nil {
 		return app.Message{}, err
@@ -237,7 +241,7 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 	}
 	userMessage := app.Message{ID: newID(), SessionID: sessionID, Role: "user", Content: content, CreatedAt: time.Now()}
 
-	replyText, handle, err := s.reply(ctx, model, priorHandle, append(history, userMessage))
+	replyText, thoughts, handle, err := s.reply(ctx, model, priorHandle, append(history, userMessage), onChunk)
 	if err != nil {
 		return app.Message{}, fmt.Errorf("generate reply: %w", err)
 	}
@@ -246,6 +250,7 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 		SessionID: sessionID,
 		Role:      "assistant",
 		Content:   replyText,
+		Thoughts:  thoughts,
 		CreatedAt: time.Now(),
 	}
 
