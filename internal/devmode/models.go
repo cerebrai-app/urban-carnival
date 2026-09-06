@@ -88,7 +88,11 @@ func SetMCPBridge(b MCPBridge) { mcpBridge = b }
 // dev-build chat turn trigger create_automation/edit_automation — the CLI
 // executes those MCP tools itself, and their handlers run the automation
 // writer (DESIGN.md §5.2 provider caveat, §5.6).
-func ChatProvider(modelID string) einomodel.ToolCallingChatModel {
+//
+// It returns the concrete *claudecode.ChatModel (nil for a non-dev model) so
+// the caller (chat.ProviderFor) gets the resumable Reply method the chat seam
+// needs, not just the Eino tool-calling subset the automation writer uses.
+func ChatProvider(modelID string) *claudecode.ChatModel {
 	if modelID != ModelClaudeCode {
 		return nil
 	}

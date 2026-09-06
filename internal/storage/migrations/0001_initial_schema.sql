@@ -25,6 +25,12 @@ CREATE TABLE sessions (
     -- model is the chat model ID this session's replies are generated with
     -- (see chat.DefaultModel / chat.ProviderFor); empty means none assigned.
     model      TEXT NOT NULL DEFAULT '',
+    -- provider_session_id is the chat provider's own conversation handle for
+    -- this session (e.g. the Claude Code CLI's session_id in dev builds).
+    -- Captured from the first assistant reply and replayed on later turns so
+    -- the provider keeps its own context. Empty until the first reply, and
+    -- for providers with no such concept.
+    provider_session_id TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

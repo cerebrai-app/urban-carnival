@@ -9,33 +9,22 @@ import (
 	"github.com/cerebrai-app/urban-carnival/internal/devmode/claudecode"
 )
 
-// TestChatModelImplementsModelProvider keeps claudecode.ChatModel wired to
-// this seam. devmode.Provider hands it back as an einomodel.ToolCallingChatModel,
-// so this is where a future divergence between ModelProvider and that
-// interface would first fail to compile. It lives here, in the in-package
-// test, because chat already imports claudecode transitively via devmode —
-// no external test package needed.
-func TestChatModelImplementsModelProvider(_ *testing.T) {
-	var _ ModelProvider = (*claudecode.ChatModel)(nil)
+// TestChatModelImplementsConversationProvider keeps claudecode.ChatModel
+// wired to this seam. devmode.ChatProvider hands it back as a concrete
+// *claudecode.ChatModel, so this is where a future divergence between
+// ConversationProvider and that type would first fail to compile. It lives
+// here, in the in-package test, because chat already imports claudecode
+// transitively via devmode — no external test package needed.
+func TestChatModelImplementsConversationProvider(_ *testing.T) {
+	var _ ConversationProvider = (*claudecode.ChatModel)(nil)
 }
 
 func TestUnconfigured(t *testing.T) {
 	ctx := context.Background()
-	var p ModelProvider = Unconfigured{}
+	var p ConversationProvider = Unconfigured{}
 
-	if _, err := p.Generate(ctx, nil); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("Generate error = %v, want ErrNotConfigured", err)
-	}
-	if _, err := p.Stream(ctx, nil); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("Stream error = %v, want ErrNotConfigured", err)
-	}
-
-	withTools, err := p.WithTools(nil)
-	if err != nil {
-		t.Fatalf("WithTools: %v", err)
-	}
-	if _, err := withTools.Generate(ctx, nil); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("WithTools(...).Generate error = %v, want ErrNotConfigured", err)
+	if _, _, err := p.Reply(ctx, "", nil); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("Reply error = %v, want ErrNotConfigured", err)
 	}
 }
 

@@ -99,12 +99,15 @@ stack" open question from the previous draft.
 ## 5. Chat Session & Automation Writer Agent
 
 **Chat is not an agent.** These are two distinct things, each its own
-package with its own provider seam — `internal/chat` (`chat.ModelProvider`)
-for chat, `internal/automationagent` (`automationagent.ModelProvider`) for
-the writer (§5.6), so the two can run on different models:
+package with its own provider seam — `internal/chat`
+(`chat.ConversationProvider`) for chat, `internal/automationagent`
+(`automationagent.ModelProvider`) for the writer (§5.6), so the two can run
+on different models — and so chat can carry provider-side conversation
+continuity (a resumable session) the writer's stateless single-shot runs
+don't need:
 
 - **Chat session** (§5.2) — plain, non-agentic request/reply. One
-  `chat.ModelProvider.Generate` call per user message, no tool-execution
+  `chat.ConversationProvider.Reply` call per user message, no tool-execution
   loop, no Eino `react.Agent` involved. This is *all* ordinary conversation
   is.
 - **Automation writer agent** (§5.3) — the actual agent loop
@@ -130,17 +133,16 @@ safe/sensible for open-ended chat.
 ### 5.2 Chat session
 
 ```
-persisted history            storage.SQLite (app.Client)      chat.ModelProvider
+persisted history            storage.SQLite (app.Client)    chat.ConversationProvider
 (app.Message)
 
 []app.Message ──convert──▶ []*schema.Message
                                         │
                                         ▼
-                        provider.WithTools([create_automation, edit_automation])
-                                        │
-                                        ▼
-                                  .Generate(ctx, history)
-                                        │
+                  .Reply(ctx, priorHandle, history) ──▶ (reply, newHandle)
+                                        │                      │
+                                        │        persist newHandle on the
+                                        │        session (provider_session_id)
                          ┌──────────────┴──────────────┐
                          │ normal reply                │ tool call named
                          ▼                              ▼
@@ -150,19 +152,28 @@ persisted history            storage.SQLite (app.Client)      chat.ModelProvider
                                                     the assistant reply
 ```
 
-- One call per turn: `provider.WithTools(...).Generate(ctx, history)`. No
-  loop, no `compose.ToolsNodeConfig`, no feeding a tool result back into
-  another `Generate` call within the chat turn itself — that multi-round
-  behavior belongs to the automation writer, not chat.
-- `create_automation` / `edit_automation` (§5.4) are bound **only so the
-  model can signal intent in that single turn** — chat itself never
-  executes them. If `Generate` returns a normal message, persist it and the
-  turn is done. If it returns a `ToolCalls` response naming one of those
-  two, chat code does not run tool logic inline; it invokes the automation
-  writer `Loop` (§5.3) with the call's arguments as its starting task, runs
-  it to completion, and persists whatever it returns (result or status) as
-  this turn's assistant reply. Any other tool name coming back would be a
-  bug — chat binds nothing else.
+- One call per turn: `provider.Reply(ctx, priorHandle, history)`. No loop, no
+  `compose.ToolsNodeConfig`, no feeding a tool result back into another call
+  within the chat turn itself — that multi-round behavior belongs to the
+  automation writer, not chat.
+- **Provider-side continuity.** `priorHandle` is the provider's own
+  conversation handle from the previous turn (the Claude Code CLI's
+  `session_id` in dev builds), persisted on the session row as
+  `provider_session_id` and empty until the first reply. `Reply` returns the
+  handle to store for next turn — it may change (a provider may fork on
+  resume), so `SendMessage` writes it back whenever it differs. Once a handle
+  exists the claudecode provider passes it as `--resume` and sends only the
+  latest user turn, letting the CLI keep the prior context itself. Providers
+  with no such concept return `""` and get the full transcript every turn.
+- `create_automation` / `edit_automation` (§5.4) are (for a native
+  tool-calling provider) bound **only so the model can signal intent in that
+  single turn** — chat itself never executes them. If `Reply` returns a
+  normal message, persist it and the turn is done. If it returns a
+  `ToolCalls` response naming one of those two, chat code does not run tool
+  logic inline; it invokes the automation writer `Loop` (§5.3) with the
+  call's arguments as its starting task, runs it to completion, and persists
+  whatever it returns (result or status) as this turn's assistant reply. Any
+  other tool name coming back would be a bug — chat binds nothing else.
 - `chat.Reply` converts persisted `[]app.Message` history into
   `[]*schema.Message` (`toSchemaMessages`). The persisted message model has
   no system-role concept, so that conversion only distinguishes
@@ -258,24 +269,32 @@ edit_automation(id, requested_change)
 ### 5.6 Provider abstractions (`internal/chat`, `internal/automationagent`)
 
 - Two provider interfaces in two packages, deliberately **not** unified:
-  `chat.ModelProvider` for chat's single-shot tool-bound `Generate` (§5.2)
-  and `automationagent.ModelProvider` for the automation writer's `Loop`
-  (§5.3). Both are Eino's `ToolCallingChatModel` today (named interfaces
-  embedding it, not `=` aliases), so a concrete provider can satisfy both —
-  but splitting them lets chat and the writer run on different models (a
-  cheaper conversational model vs. a stronger code-writing one) and lets
-  either interface diverge later without disturbing the other. The chat
-  model is per-session (`Session.Model`); the agent model is worker-global
-  (§5.3). There is no shared `internal/model` package — each package owns
-  its interface plus its own `Unconfigured` / `ErrNotConfigured`.
+  `chat.ConversationProvider` for chat's single-shot `Reply` (§5.2) and
+  `automationagent.ModelProvider` for the automation writer's `Loop` (§5.3).
+  They have already diverged: the writer's is Eino's `ToolCallingChatModel`
+  (for multi-round tool orchestration), while `chat.ConversationProvider` is
+  a narrower `Reply(ctx, priorHandle, history) → (reply, newHandle)` — one
+  turn, with a provider-side conversation handle threaded through so the
+  session can be resumed (§5.2). A concrete provider can still satisfy both
+  (`claudecode.ChatModel` does — `Reply` for chat, `Generate` for the
+  writer). Splitting the seams lets chat and the writer run on different
+  models (a cheaper conversational model vs. a stronger code-writing one).
+  The chat model is per-session (`Session.Model`), with its resume handle in
+  `sessions.provider_session_id`; the agent model is worker-global (§5.3).
+  There is no shared `internal/model` package — each package owns its
+  interface plus its own `Unconfigured` / `ErrNotConfigured`.
 - Concrete providers today:
   - `chat.Unconfigured` / `automationagent.Unconfigured` — placeholders
     returning that package's `ErrNotConfigured` from every call. The
     fallback for an unrecognized/empty session model ID (chat) or an
     unconfigured worker-global agent model.
   - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
-    (`claude -p`), dev-builds only. Flattens history into a system prompt +
-    single transcript prompt. **`WithTools` rejects any non-empty tool list
+    (`claude -p`), dev-builds only. On the first turn (`Generate`, or `Reply`
+    with an empty handle) it flattens history into a system prompt + single
+    transcript prompt; once it has the CLI's `session_id`, `Reply` passes it
+    as `--resume` and sends only the latest user message, returning the
+    (possibly forked) `session_id` for the store to persist. **`WithTools`
+    rejects any non-empty tool list
     outright** — the CLI drives its own tool use and can't take an Eino tool
     bind; tools reach it via MCP instead (`WithMCP`, see the dev MCP server
     below).
@@ -323,11 +342,14 @@ edit_automation(id, requested_change)
   the other.
 - The dev-only model catalog lives in `internal/devmode`:
   `devmode.DefaultChatModel()` / `devmode.AvailableChatModels()` /
-  `devmode.AgentModel()` (all gated on `devmode.Enabled()`) and one shared
-  resolver `devmode.Provider(modelID)` returning the `devmode/claudecode`
-  provider as a bare Eino `ToolCallingChatModel` — the same CLI wrapper
-  serves both seams in dev, so chat-vs-agent is a distinction the callers
-  make, not this catalog. Each provider package wraps it:
+  `devmode.AgentModel()` (all gated on `devmode.Enabled()`) and two
+  resolvers over the same `devmode/claudecode` provider —
+  `devmode.Provider(modelID)` returns it as a bare Eino
+  `ToolCallingChatModel` for the writer, `devmode.ChatProvider(modelID)`
+  returns the concrete `*claudecode.ChatModel` (with the MCP bridge attached)
+  so chat gets its resumable `Reply`. The same CLI wrapper serves both seams
+  in dev, so chat-vs-agent is a distinction the callers make, not this
+  catalog. Each provider package wraps it:
   - `chat.DefaultModel()` / `chat.AvailableModels()` /
     `chat.ProviderFor(modelID)` / `chat.DefaultProvider()` — the
     per-session chat catalog, each falling back to `chat.Unconfigured`.
@@ -344,11 +366,14 @@ edit_automation(id, requested_change)
 ### 5.7 Wiring status (read before assuming this is live end-to-end)
 
 - `storage.SQLite.SendMessage` calls `chat.Reply(ctx,
-  chat.ProviderFor(session.Model), history)` for plain chat (§5.2) — **not**
-  `automationagent.New`/`Loop`, which is reserved for the automation writer.
-  The reply generator is an injectable `Replier` field (tests stub it). In
-  production builds the provider is `chat.Unconfigured`, so `SendMessage`
-  errors until a hosted provider is wired in.
+  chat.ProviderFor(session.Model), history, priorHandle)` for plain chat
+  (§5.2) — **not** `automationagent.New`/`Loop`, which is reserved for the
+  automation writer. It reads the session's `provider_session_id` for
+  `priorHandle` and writes back the handle `chat.Reply` returns (when it
+  changed), in the same transaction as the message inserts. The reply
+  generator is an injectable `Replier` field (tests stub it). In production
+  builds the provider is `chat.Unconfigured`, so `SendMessage` errors until a
+  hosted provider is wired in.
 - `chat.Reply` does **not** yet bind `create_automation`/`edit_automation`
   as intent signals, and there's no `ToolCalls` branch / chat→writer handoff
   in chat code. Not needed for the only provider that exists (claudecode
@@ -391,13 +416,15 @@ edit_automation(id, requested_change)
 
 ### 5.9 Multi-provider intent (original direction, still holds)
 
-- The assistant/codegen layer sits behind the `chat.ModelProvider` /
+- The assistant/codegen layer sits behind the `chat.ConversationProvider` /
   `automationagent.ModelProvider` seams rather than a
   hard-coded vendor so Anthropic, OpenAI, and local models can all be
   supported — confirm as new providers are added that Eino's abstraction
   keeps covering them without leaking vendor-specific quirks (e.g.
   claudecode's MCP-vs-Eino-tools mismatch above) into chat or
-  automation/memory logic.
+  automation/memory logic. A hosted provider maps its own conversation
+  continuity onto `Reply`'s handle (a thread/response ID, or `""` if it
+  replays full history each turn).
 
 ## 6. Platform & Distribution
 

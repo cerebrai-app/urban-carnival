@@ -43,9 +43,13 @@ type SQLite struct {
 
 var _ app.Client = (*SQLite)(nil)
 
-// Replier generates an assistant reply for a session from its model ID and
-// full message history (oldest first, including the just-sent user message).
-type Replier func(ctx context.Context, model string, history []app.Message) (string, error)
+// Replier generates an assistant reply for a session from its model ID, the
+// provider's conversation handle from the previous turn (priorHandle, empty
+// on the first), and the full message history (oldest first, including the
+// just-sent user message). It returns the reply text and the provider's
+// conversation handle to persist and replay next turn (empty when the
+// provider has no such concept).
+type Replier func(ctx context.Context, model, priorHandle string, history []app.Message) (reply, handle string, err error)
 
 // Option configures a SQLite at construction time.
 type Option func(*SQLite)
@@ -61,8 +65,8 @@ func WithReplier(r Replier) Option {
 // local Claude Code CLI wired to the in-process MCP server (see
 // internal/devmode/devmcp); otherwise it's chat.Unconfigured and this
 // returns chat.ErrNotConfigured.
-func defaultReplier(ctx context.Context, model string, history []app.Message) (string, error) {
-	return chat.Reply(ctx, chat.ProviderFor(model), history)
+func defaultReplier(ctx context.Context, model, priorHandle string, history []app.Message) (string, string, error) {
+	return chat.Reply(ctx, chat.ProviderFor(model), history, priorHandle)
 }
 
 // NewSQLite wraps db as an app.Client. In a developer's checkout the
@@ -192,18 +196,20 @@ func insertMessage(ctx context.Context, q execer, m app.Message) error {
 	return err
 }
 
-// sessionModel returns the chat model ID a session's replies should be
-// generated with. An unknown session ID is an error.
-func (s *SQLite) sessionModel(ctx context.Context, sessionID string) (string, error) {
-	var model string
-	err := s.db.QueryRowContext(ctx, `SELECT model FROM sessions WHERE id = ?`, sessionID).Scan(&model)
+// sessionModelAndHandle returns the chat model ID a session's replies should
+// be generated with, plus the chat provider's conversation handle from the
+// last turn (provider_session_id; empty until the first reply). An unknown
+// session ID is an error.
+func (s *SQLite) sessionModelAndHandle(ctx context.Context, sessionID string) (model, handle string, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT model, provider_session_id FROM sessions WHERE id = ?`, sessionID).Scan(&model, &handle)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("session %q not found", sessionID)
+		return "", "", fmt.Errorf("session %q not found", sessionID)
 	}
 	if err != nil {
-		return "", fmt.Errorf("look up model for session %q: %w", sessionID, err)
+		return "", "", fmt.Errorf("look up model for session %q: %w", sessionID, err)
 	}
-	return model, nil
+	return model, handle, nil
 }
 
 // SendMessage generates an assistant reply for the user's message via the
@@ -218,7 +224,7 @@ func (s *SQLite) sessionModel(ctx context.Context, sessionID string) (string, er
 // in-process MCP server (internal/devmode/devmcp), which needs this pool's
 // single connection, so a transaction held across s.reply would deadlock.
 func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (app.Message, error) {
-	model, err := s.sessionModel(ctx, sessionID)
+	model, priorHandle, err := s.sessionModelAndHandle(ctx, sessionID)
 	if err != nil {
 		return app.Message{}, err
 	}
@@ -231,7 +237,7 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 	}
 	userMessage := app.Message{ID: newID(), SessionID: sessionID, Role: "user", Content: content, CreatedAt: time.Now()}
 
-	replyText, err := s.reply(ctx, model, append(history, userMessage))
+	replyText, handle, err := s.reply(ctx, model, priorHandle, append(history, userMessage))
 	if err != nil {
 		return app.Message{}, fmt.Errorf("generate reply: %w", err)
 	}
@@ -268,6 +274,16 @@ func (s *SQLite) SendMessage(ctx context.Context, sessionID, content string) (ap
 		titleFromContent(content), sessionID, newSessionTitle,
 	); err != nil {
 		return app.Message{}, fmt.Errorf("retitle session %q: %w", sessionID, err)
+	}
+	// Persist the provider's conversation handle so the next turn can resume
+	// it (DESIGN.md §5.2). The provider may hand back a fresh handle each turn
+	// (a fork on resume), so store whenever it changed.
+	if handle != "" && handle != priorHandle {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE sessions SET provider_session_id = ? WHERE id = ?`, handle, sessionID,
+		); err != nil {
+			return app.Message{}, fmt.Errorf("save provider session id for %q: %w", sessionID, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return app.Message{}, fmt.Errorf("commit send: %w", err)
