@@ -12,9 +12,10 @@ import (
 )
 
 // stubReplier is the default reply generator tests run with, so SendMessage
-// never shells out to a real chat model. It echoes the latest message.
-func stubReplier(_ context.Context, _ string, history []app.Message) (string, error) {
-	return "reply to: " + history[len(history)-1].Content, nil
+// never shells out to a real chat model. It echoes the latest message and
+// keeps whatever provider handle it was given.
+func stubReplier(_ context.Context, _, priorHandle string, history []app.Message) (string, string, error) {
+	return "reply to: " + history[len(history)-1].Content, priorHandle, nil
 }
 
 // newTestSQLite opens a fresh, migrated database in a temp directory and
@@ -143,10 +144,10 @@ func TestSQLiteSendMessagePersistsReplierOutput(t *testing.T) {
 func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
 	var gotModel string
 	var gotHistory []app.Message
-	s := newTestSQLiteWithReplier(t, func(_ context.Context, model string, history []app.Message) (string, error) {
+	s := newTestSQLiteWithReplier(t, func(_ context.Context, model, _ string, history []app.Message) (string, string, error) {
 		gotModel = model
 		gotHistory = history
-		return "ok", nil
+		return "ok", "", nil
 	})
 	ctx := context.Background()
 
@@ -176,6 +177,48 @@ func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
 	}
 }
 
+func TestSQLiteSendMessagePersistsAndReplaysProviderSessionID(t *testing.T) {
+	var gotPrior []string
+	turn := 0
+	s := newTestSQLiteWithReplier(t, func(_ context.Context, _, priorHandle string, _ []app.Message) (string, string, error) {
+		gotPrior = append(gotPrior, priorHandle)
+		turn++
+		if turn == 1 {
+			// First reply hands back a fresh provider handle.
+			return "ok", "provider-sess-1", nil
+		}
+		return "ok", priorHandle, nil
+	})
+	ctx := context.Background()
+
+	session, err := s.CreateSession(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+		t.Fatalf("SendMessage(first): %v", err)
+	}
+	// The handle from the first reply is persisted on the session row.
+	var stored string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT provider_session_id FROM sessions WHERE id = ?`, session.ID).Scan(&stored); err != nil {
+		t.Fatalf("read provider_session_id: %v", err)
+	}
+	if stored != "provider-sess-1" {
+		t.Errorf("stored provider_session_id = %q, want %q", stored, "provider-sess-1")
+	}
+
+	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+		t.Fatalf("SendMessage(second): %v", err)
+	}
+
+	want := []string{"", "provider-sess-1"}
+	if len(gotPrior) != len(want) || gotPrior[0] != want[0] || gotPrior[1] != want[1] {
+		t.Errorf("priorHandle per turn = %v, want %v", gotPrior, want)
+	}
+}
+
 func TestSQLiteSendMessageUnknownSession(t *testing.T) {
 	s := newTestSQLite(t)
 
@@ -185,8 +228,8 @@ func TestSQLiteSendMessageUnknownSession(t *testing.T) {
 }
 
 func TestSQLiteSendMessageReplierErrorIsReturned(t *testing.T) {
-	s := newTestSQLiteWithReplier(t, func(context.Context, string, []app.Message) (string, error) {
-		return "", errReplierBoom
+	s := newTestSQLiteWithReplier(t, func(context.Context, string, string, []app.Message) (string, string, error) {
+		return "", "", errReplierBoom
 	})
 	ctx := context.Background()
 

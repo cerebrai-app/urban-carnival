@@ -1,7 +1,7 @@
 // Package claudecode implements the chat and automation-writer model
-// provider seams (chat.ModelProvider / automationagent.ModelProvider) on top
-// of the local Claude Code CLI (github.com/lancekrogers/claude-code-go), so
-// both can be exercised end-to-end in developer builds without a hosted API
+// provider seams (chat.ConversationProvider / automationagent.ModelProvider)
+// on top of the local Claude Code CLI (github.com/lancekrogers/claude-code-go),
+// so both can be exercised end-to-end in developer builds without a hosted API
 // key (see devmode.Provider, gated on devmode.Enabled).
 package claudecode
 
@@ -24,8 +24,9 @@ type promptRunner interface {
 }
 
 // ChatModel is a provider backed by the Claude Code CLI (`claude -p`). It
-// satisfies both chat.ModelProvider and automationagent.ModelProvider — in
-// dev builds the same CLI wrapper serves chat and the automation writer.
+// satisfies both chat.ConversationProvider (via Reply) and
+// automationagent.ModelProvider (via Generate) — in dev builds the same CLI
+// wrapper serves chat and the automation writer.
 type ChatModel struct {
 	client promptRunner
 	// mcpConfigJSON, when non-empty, is an inline `--mcp-config` JSON document
@@ -63,13 +64,57 @@ func New(binPath string, opts ...Option) *ChatModel {
 // Generate flattens the conversation history into a system prompt (from any
 // system messages) plus a single transcript prompt, and runs it through the
 // Claude Code CLI — `claude -p` takes one prompt per invocation rather than
-// a message list.
+// a message list. It's the automation-writer seam
+// (automationagent.ModelProvider); the chat seam uses Reply instead, which
+// carries the CLI's own session across turns.
 func (m *ChatModel) Generate(ctx context.Context, messages []*schema.Message, _ ...einomodel.Option) (*schema.Message, error) {
+	msg, _, err := m.run(ctx, messages, "")
+	return msg, err
+}
+
+// Reply implements chat.ConversationProvider (DESIGN.md §5.2): one assistant
+// turn that continues the CLI's own session. On the first turn priorHandle is
+// empty and the whole transcript is sent; once the CLI has returned a
+// session_id, later turns pass it as --resume and send only the newest user
+// message, letting the CLI keep the prior context itself. The returned handle
+// is the session_id to persist and replay next turn. A resume that fails
+// (stale session) is retried once with the full transcript.
+func (m *ChatModel) Reply(ctx context.Context, priorHandle string, history []*schema.Message) (*schema.Message, string, error) {
+	return m.run(ctx, history, priorHandle)
+}
+
+// run invokes the CLI, resuming resumeID when it's set. A resume that fails
+// — most often because the CLI no longer has that session on disk — is
+// retried once from scratch with the full transcript, so a stale handle
+// self-heals instead of wedging every future turn.
+func (m *ChatModel) run(ctx context.Context, messages []*schema.Message, resumeID string) (*schema.Message, string, error) {
+	if resumeID != "" && len(messages) > 0 {
+		msg, handle, err := m.invoke(ctx, messages, resumeID)
+		if err == nil || ctx.Err() != nil {
+			return msg, handle, err
+		}
+		// The resume failed; fall through and replay the whole conversation
+		// so one bad handle can't fail this session forever.
+	}
+	return m.invoke(ctx, messages, "")
+}
+
+// invoke runs the CLI once. resumeID, when set, resumes that CLI session and
+// narrows the prompt to just the latest message; otherwise the full history
+// is flattened into a system prompt + transcript.
+func (m *ChatModel) invoke(ctx context.Context, messages []*schema.Message, resumeID string) (*schema.Message, string, error) {
 	system, prompt := buildPrompt(messages)
 
-	opts := &claude.RunOptions{
-		Format:       claude.JSONOutput,
-		SystemPrompt: system,
+	opts := &claude.RunOptions{Format: claude.JSONOutput}
+	if resumeID != "" && len(messages) > 0 {
+		// The CLI already holds everything before this turn — the system
+		// prompt included — so send only the latest message; re-sending the
+		// transcript would duplicate it, and re-sending the system prompt
+		// would override the resumed session's own every turn.
+		opts.ResumeID = resumeID
+		prompt = messages[len(messages)-1].Content
+	} else {
+		opts.SystemPrompt = system
 	}
 	if m.mcpConfigJSON != "" {
 		// Attach only our server (StrictMCPConfig) and pre-approve its tools
@@ -84,13 +129,13 @@ func (m *ChatModel) Generate(ctx context.Context, messages []*schema.Message, _ 
 
 	result, err := m.client.RunPromptCtx(ctx, prompt, opts)
 	if err != nil {
-		return nil, fmt.Errorf("claudecode: %w", err)
+		return nil, "", fmt.Errorf("claudecode: %w", err)
 	}
 	if result.IsError {
-		return nil, fmt.Errorf("claudecode: %s", result.Result)
+		return nil, "", fmt.Errorf("claudecode: %s", result.Result)
 	}
 
-	return &schema.Message{Role: schema.Assistant, Content: result.Result}, nil
+	return &schema.Message{Role: schema.Assistant, Content: result.Result}, result.SessionID, nil
 }
 
 // Stream is not implemented: the CLI's streaming mode emits stream-json
