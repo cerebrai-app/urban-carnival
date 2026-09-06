@@ -13,10 +13,10 @@ import (
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 
 	"github.com/cerebrai-app/urban-carnival/internal/app"
 	"github.com/cerebrai-app/urban-carnival/internal/config"
+	"github.com/cerebrai-app/urban-carnival/internal/desktopui/assets"
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
 )
 
@@ -37,6 +37,7 @@ type App struct {
 // New builds the desktop App, wiring it to client.
 func New(client app.Client) *App {
 	fyneApp := fyneapp.NewWithID("app.cerebrai.desktop")
+	fyneApp.SetIcon(assets.Icon)
 	window := fyneApp.NewWindow("cerebrai")
 	window.Resize(fyne.NewSize(960, 640))
 
@@ -85,8 +86,7 @@ func (a *App) setupSystemTray() {
 	trayMenu := fyne.NewMenu("cerebrai", showItem, fyne.NewMenuItemSeparator(), fyne.NewMenuItem("Quit", a.fyneApp.Quit))
 
 	desk.SetSystemTrayMenu(trayMenu)
-	// TODO: replace with a dedicated cerebrai app icon asset.
-	desk.SetSystemTrayIcon(theme.MailComposeIcon())
+	desk.SetSystemTrayIcon(assets.TrayIcon)
 }
 
 func (a *App) buildMainMenu() *fyne.MainMenu {

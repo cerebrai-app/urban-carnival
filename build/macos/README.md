@@ -7,7 +7,12 @@ Turns a prebuilt `cerebrai-desktop` binary into `CerebrAI.app` and a
 | --------------- | ------------------------------------------------------------- |
 | `package-app.sh` | Assembles the `.app` bundle; `--dmg` also builds the installer, `--env KEY=VALUE` adds `LSEnvironment` entries. |
 | `Info.plist.in`  | Bundle metadata template (`@TOKENS@` filled by the script).     |
-| `icon.png`       | Square source icon, 1024×1024 ideal (see [Credits](#credits)).   |
+| `icon.png`       | Full-color square source icon (see [Credits](#credits)); `package-app.sh` renders it into the bundle's `icon.icns`. |
+
+The running desktop binary embeds a copy of this icon at
+`internal/desktopui/assets/icon.png` for the window/Dock/taskbar icon, and
+renders it as a theme-adaptive template image for the system-tray icon so it
+stays legible on both light and dark menu bars.
 
 The script builds nothing itself: the binary comes from `make build-desktop`
 or from goreleaser in the release workflow, so version ldflags have one
