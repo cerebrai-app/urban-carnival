@@ -11,11 +11,11 @@ import (
 	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
-// stubReplier is the default reply generator tests run with, so SendMessage
+// stubReplier is the default reply generator tests run with, so StreamMessage
 // never shells out to a real chat model. It echoes the latest message and
-// keeps whatever provider handle it was given.
-func stubReplier(_ context.Context, _, priorHandle string, history []app.Message) (string, string, error) {
-	return "reply to: " + history[len(history)-1].Content, priorHandle, nil
+// keeps whatever provider handle it was given, surfacing no reasoning.
+func stubReplier(_ context.Context, _, priorHandle string, history []app.Message, _ func(app.ReplyChunk)) (string, string, string, error) {
+	return "reply to: " + history[len(history)-1].Content, "", priorHandle, nil
 }
 
 // newTestSQLite opens a fresh, migrated database in a temp directory and
@@ -126,7 +126,7 @@ func TestSQLiteSendMessagePersistsReplierOutput(t *testing.T) {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
-	got, err := s.SendMessage(ctx, session.ID, "hello there")
+	got, err := s.StreamMessage(ctx, session.ID, "hello there", nil)
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
@@ -144,10 +144,10 @@ func TestSQLiteSendMessagePersistsReplierOutput(t *testing.T) {
 func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
 	var gotModel string
 	var gotHistory []app.Message
-	s := newTestSQLiteWithReplier(t, func(_ context.Context, model, _ string, history []app.Message) (string, string, error) {
+	s := newTestSQLiteWithReplier(t, func(_ context.Context, model, _ string, history []app.Message, _ func(app.ReplyChunk)) (string, string, string, error) {
 		gotModel = model
 		gotHistory = history
-		return "ok", "", nil
+		return "ok", "", "", nil
 	})
 	ctx := context.Background()
 
@@ -155,10 +155,10 @@ func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "first", nil); err != nil {
 		t.Fatalf("SendMessage(first): %v", err)
 	}
-	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "second", nil); err != nil {
 		t.Fatalf("SendMessage(second): %v", err)
 	}
 
@@ -180,14 +180,14 @@ func TestSQLiteSendMessagePassesModelAndHistory(t *testing.T) {
 func TestSQLiteSendMessagePersistsAndReplaysProviderSessionID(t *testing.T) {
 	var gotPrior []string
 	turn := 0
-	s := newTestSQLiteWithReplier(t, func(_ context.Context, _, priorHandle string, _ []app.Message) (string, string, error) {
+	s := newTestSQLiteWithReplier(t, func(_ context.Context, _, priorHandle string, _ []app.Message, _ func(app.ReplyChunk)) (string, string, string, error) {
 		gotPrior = append(gotPrior, priorHandle)
 		turn++
 		if turn == 1 {
 			// First reply hands back a fresh provider handle.
-			return "ok", "provider-sess-1", nil
+			return "ok", "", "provider-sess-1", nil
 		}
-		return "ok", priorHandle, nil
+		return "ok", "", priorHandle, nil
 	})
 	ctx := context.Background()
 
@@ -196,7 +196,7 @@ func TestSQLiteSendMessagePersistsAndReplaysProviderSessionID(t *testing.T) {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
-	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "first", nil); err != nil {
 		t.Fatalf("SendMessage(first): %v", err)
 	}
 	// The handle from the first reply is persisted on the session row.
@@ -209,7 +209,7 @@ func TestSQLiteSendMessagePersistsAndReplaysProviderSessionID(t *testing.T) {
 		t.Errorf("stored provider_session_id = %q, want %q", stored, "provider-sess-1")
 	}
 
-	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "second", nil); err != nil {
 		t.Fatalf("SendMessage(second): %v", err)
 	}
 
@@ -222,14 +222,14 @@ func TestSQLiteSendMessagePersistsAndReplaysProviderSessionID(t *testing.T) {
 func TestSQLiteSendMessageUnknownSession(t *testing.T) {
 	s := newTestSQLite(t)
 
-	if _, err := s.SendMessage(context.Background(), "nope", "hi"); err == nil {
+	if _, err := s.StreamMessage(context.Background(), "nope", "hi", nil); err == nil {
 		t.Fatal("expected an error for an unknown session ID")
 	}
 }
 
 func TestSQLiteSendMessageReplierErrorIsReturned(t *testing.T) {
-	s := newTestSQLiteWithReplier(t, func(context.Context, string, string, []app.Message) (string, string, error) {
-		return "", "", errReplierBoom
+	s := newTestSQLiteWithReplier(t, func(context.Context, string, string, []app.Message, func(app.ReplyChunk)) (string, string, string, error) {
+		return "", "", "", errReplierBoom
 	})
 	ctx := context.Background()
 
@@ -237,7 +237,7 @@ func TestSQLiteSendMessageReplierErrorIsReturned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if _, err := s.SendMessage(ctx, session.ID, "hi"); !strings.Contains(err.Error(), "boom") {
+	if _, err := s.StreamMessage(ctx, session.ID, "hi", nil); !strings.Contains(err.Error(), "boom") {
 		t.Errorf("SendMessage error = %v, want it to wrap the replier error", err)
 	}
 	// A failed reply persists nothing, so a retry won't find an orphaned user
@@ -335,7 +335,7 @@ func TestSQLiteListSessionsOrdersByMostRecentlyUpdated(t *testing.T) {
 
 	// Sending a message on the first session bumps its updated_at, so it
 	// should sort ahead of the second even though it was created earlier.
-	if _, err := s.SendMessage(ctx, first.ID, "hello"); err != nil {
+	if _, err := s.StreamMessage(ctx, first.ID, "hello", nil); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 
@@ -369,14 +369,14 @@ func TestSQLiteListMessagesReturnsSessionHistoryInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession(other): %v", err)
 	}
-	if _, err := s.SendMessage(ctx, other.ID, "unrelated"); err != nil {
+	if _, err := s.StreamMessage(ctx, other.ID, "unrelated", nil); err != nil {
 		t.Fatalf("SendMessage(other): %v", err)
 	}
 
-	if _, err := s.SendMessage(ctx, session.ID, "first"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "first", nil); err != nil {
 		t.Fatalf("SendMessage(first): %v", err)
 	}
-	if _, err := s.SendMessage(ctx, session.ID, "second"); err != nil {
+	if _, err := s.StreamMessage(ctx, session.ID, "second", nil); err != nil {
 		t.Fatalf("SendMessage(second): %v", err)
 	}
 

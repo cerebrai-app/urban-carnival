@@ -3,11 +3,15 @@ package desktopui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"log/slog"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/cerebrai-app/urban-carnival/internal/app"
@@ -29,20 +33,19 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	var messages []app.Message
 	var currentSessionID string
 
-	history := widget.NewRichTextFromMarkdown("")
-	history.Wrapping = fyne.TextWrapWord
-	historyScroll := container.NewVScroll(history)
+	// The transcript is a column of per-message bubbles rather than one
+	// widget: each bubble's body is a selectable Label so its text (code
+	// included) can be highlighted and copied, and an assistant reply can
+	// carry a collapsed "Thought process" section above it.
+	historyBox := container.NewVBox()
+	historyScroll := container.NewVScroll(historyBox)
 
 	refreshHistory := func() {
-		var transcript string
+		historyBox.RemoveAll()
 		for _, m := range messages {
-			prefix := "cerebrai"
-			if m.Role == "user" {
-				prefix = "You"
-			}
-			transcript += fmt.Sprintf("\n\n**%s:** %s", prefix, m.Content)
+			historyBox.Add(messageBubble(m))
 		}
-		history.ParseMarkdown(transcript)
+		historyBox.Refresh()
 		historyScroll.ScrollToBottom()
 	}
 
@@ -203,9 +206,28 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 		messages = append(messages, app.Message{Role: "user", Content: text, CreatedAt: time.Now()})
 		refreshHistory()
 
-		go func() {
-			reply, err := client.SendMessage(ctx, sessionID, text)
+		// A live bubble the reply streams into: the thought section starts
+		// expanded and hidden, appearing once the first reasoning token
+		// arrives, and the answer Label fills in token by token. It's
+		// replaced by the persisted message once the turn completes.
+		live := newStreamingBubble()
+		historyBox.Add(live.root)
+		historyBox.Refresh()
+
+		onChunk := func(c app.ReplyChunk) {
 			fyne.Do(func() {
+				if currentSessionID != sessionID {
+					return
+				}
+				live.append(c)
+				historyScroll.ScrollToBottom()
+			})
+		}
+
+		go func() {
+			reply, err := client.StreamMessage(ctx, sessionID, text, onChunk)
+			fyne.Do(func() {
+				historyBox.Remove(live.root)
 				if err != nil {
 					slog.Error("send message", "error", err)
 					if currentSessionID == sessionID {
@@ -247,7 +269,149 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	return split
 }
 
-// chatErrorMessage turns a failed SendMessage into the line shown in the
+// bubbleMaxWidthFrac caps a chat bubble at this fraction of the transcript
+// width, so a short message stays a short bubble and a long one still leaves
+// room on the opposite side.
+const bubbleMaxWidthFrac = 0.8
+
+// selectableBody is a wrapping, selectable Label for a message's text, so the
+// user can highlight and copy any part of it (Ctrl+C or the right-click menu).
+func selectableBody(text string, align fyne.TextAlign) *widget.Label {
+	l := widget.NewLabel(text)
+	l.Wrapping = fyne.TextWrapWord
+	l.Alignment = align
+	l.Selectable = true
+	return l
+}
+
+// bubbleColor mixes the theme's background toward its foreground by frac,
+// yielding a gray that tracks the light/dark system theme automatically. User
+// and assistant bubbles pass different fracs so they read as distinct hues.
+func bubbleColor(frac float32) color.Color {
+	bg := color.NRGBAModel.Convert(theme.Color(theme.ColorNameBackground)).(color.NRGBA)
+	fg := color.NRGBAModel.Convert(theme.Color(theme.ColorNameForeground)).(color.NRGBA)
+	mix := func(a, b uint8) uint8 { return uint8(float32(a)*(1-frac) + float32(b)*frac) }
+	return color.NRGBA{R: mix(bg.R, fg.R), G: mix(bg.G, fg.G), B: mix(bg.B, fg.B), A: 255}
+}
+
+// bubble wraps a message's content in a rounded, tinted card and aligns it to
+// one side of the transcript (user right, assistant left). naturalWidth is the
+// unwrapped width of the content's text; the bubble hugs that up to
+// bubbleMaxWidthFrac of the transcript, past which the text wraps. Pass 0 to
+// always use the full fraction (e.g. content that isn't a single label).
+func bubble(content fyne.CanvasObject, role string, naturalWidth float32) fyne.CanvasObject {
+	right := role == "user"
+	frac := float32(0.07)
+	if right {
+		frac = 0.16
+	}
+	rect := canvas.NewRectangle(bubbleColor(frac))
+	rect.CornerRadius = theme.Padding() * 2
+	card := container.NewStack(rect, container.NewPadded(content))
+	return container.New(&sideAlign{right: right, naturalWidth: naturalWidth}, card)
+}
+
+// naturalTextWidth is the width of the widest line of s laid out unwrapped,
+// plus the padding a bubble adds around its label. It's what lets a short
+// message stay a short bubble.
+func naturalTextWidth(s string) float32 {
+	var widest float32
+	for _, line := range strings.Split(s, "\n") {
+		widest = fyne.Max(widest, fyne.MeasureText(line, theme.TextSize(), fyne.TextStyle{}).Width)
+	}
+	return widest + 6*theme.Padding()
+}
+
+// messageBubble renders one persisted message: an assistant reply's collapsed
+// "Thought process" section when it has one, then the body, tinted and aligned
+// by role.
+func messageBubble(m app.Message) fyne.CanvasObject {
+	align := fyne.TextAlignLeading
+	if m.Role == "user" {
+		align = fyne.TextAlignTrailing
+	}
+	if m.Thoughts != "" {
+		item := widget.NewAccordionItem("Thought process", selectableBody(m.Thoughts, fyne.TextAlignLeading))
+		content := container.NewVBox(widget.NewAccordion(item), selectableBody(m.Content, align)) // accordion collapsed by default
+		return bubble(content, m.Role, 0)
+	}
+	return bubble(selectableBody(m.Content, align), m.Role, naturalTextWidth(m.Content))
+}
+
+// streamingBubble is the in-progress assistant reply: a thought section that
+// stays hidden until the first reasoning token, plus an answer Label that
+// fills in as tokens arrive. append accumulates each chunk.
+type streamingBubble struct {
+	root       fyne.CanvasObject
+	thoughtAcc *widget.Accordion
+	thought    *widget.Label
+	answer     *widget.Label
+	thoughtBuf strings.Builder
+	answerBuf  strings.Builder
+}
+
+func newStreamingBubble() *streamingBubble {
+	b := &streamingBubble{
+		thought: selectableBody("", fyne.TextAlignLeading),
+		answer:  selectableBody("", fyne.TextAlignLeading),
+	}
+	item := widget.NewAccordionItem("Thinking…", b.thought)
+	item.Open = true
+	b.thoughtAcc = widget.NewAccordion(item)
+	b.thoughtAcc.Hide()
+	b.root = bubble(container.NewVBox(b.thoughtAcc, b.answer), "assistant", 0)
+	return b
+}
+
+func (b *streamingBubble) append(c app.ReplyChunk) {
+	if c.Thought != "" {
+		b.thoughtBuf.WriteString(c.Thought)
+		b.thought.SetText(b.thoughtBuf.String())
+		b.thoughtAcc.Show()
+	}
+	if c.Answer != "" {
+		b.answerBuf.WriteString(c.Answer)
+		b.answer.SetText(b.answerBuf.String())
+	}
+}
+
+// sideAlign lays out a single child flush to one side of the row (left, or
+// right when right is set). Its width is bubbleMaxWidthFrac of the row, or
+// naturalWidth when that is smaller and positive — so a short message is a
+// short bubble and a long one wraps. It's how chat bubbles hug their side of
+// the transcript.
+type sideAlign struct {
+	right        bool
+	naturalWidth float32
+}
+
+func (s *sideAlign) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	if len(objs) == 0 {
+		return fyne.Size{}
+	}
+	// Report only height: the row's width comes from the parent, and forcing
+	// the child's full unwrapped width here would stop its text wrapping.
+	return fyne.NewSize(0, objs[0].MinSize().Height)
+}
+
+func (s *sideAlign) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	if len(objs) == 0 {
+		return
+	}
+	o := objs[0]
+	w := size.Width * bubbleMaxWidthFrac
+	if s.naturalWidth > 0 && s.naturalWidth < w {
+		w = s.naturalWidth
+	}
+	o.Resize(fyne.NewSize(w, o.MinSize().Height))
+	x := float32(0)
+	if s.right {
+		x = size.Width - w
+	}
+	o.Move(fyne.NewPos(x, 0))
+}
+
+// chatErrorMessage turns a failed StreamMessage into the line shown in the
 // transcript where the reply would have been. It quotes the underlying error
 // rather than a fixed "something went wrong": the client is in-process today
 // (internal/storage), so the cause is almost always local and actionable —

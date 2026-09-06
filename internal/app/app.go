@@ -49,7 +49,20 @@ type Message struct {
 	SessionID string
 	Role      string // "user" or "assistant"
 	Content   string
+	// Thoughts is the model's reasoning for an assistant message, streamed
+	// alongside the answer (DESIGN.md §5.2) and shown collapsed above it in
+	// the UI. Empty for user messages and for providers that don't surface
+	// reasoning.
+	Thoughts  string
 	CreatedAt time.Time
+}
+
+// ReplyChunk is one incremental update during a streamed assistant turn
+// (Client.StreamMessage). Thought carries new reasoning text and Answer new
+// answer text; a given chunk usually sets exactly one of them.
+type ReplyChunk struct {
+	Thought string
+	Answer  string
 }
 
 // Automation is a discrete piece of LLM-generated code plus metadata, as
@@ -105,10 +118,14 @@ type Client interface {
 	// first.
 	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
 
-	// SendMessage submits a user message to the given session and returns
-	// the assistant's reply once generated. Both the user's message and
-	// the reply are persisted.
-	SendMessage(ctx context.Context, sessionID, content string) (Message, error)
+	// StreamMessage submits a user message to the given session and returns
+	// the assistant's reply once generated. Both the user's message and the
+	// reply (including its streamed Thoughts) are persisted. While the reply
+	// is generated, incremental reasoning and answer text are delivered to
+	// onChunk, which is called from the calling goroutine (never concurrently)
+	// and may be nil to ignore the stream. Providers that don't stream simply
+	// never invoke it.
+	StreamMessage(ctx context.Context, sessionID, content string, onChunk func(ReplyChunk)) (Message, error)
 
 	// ListAutomations returns all automations known to the engine.
 	ListAutomations(ctx context.Context) ([]Automation, error)

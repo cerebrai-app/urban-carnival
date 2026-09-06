@@ -189,6 +189,17 @@ persisted history            storage.SQLite (app.Client)    chat.ConversationPro
   `[]*schema.Message` (`toSchemaMessages`). The persisted message model has
   no system-role concept, so that conversion only distinguishes
   `"assistant"` from everything-else-as-`User`.
+- **Streaming + thoughts.** `Client.StreamMessage` (the only send path)
+  runs the turn through `chat.ReplyStream`, which forwards incremental
+  reasoning and answer text as `app.ReplyChunk` values while the reply is
+  generated. A provider opts in by implementing `chat.StreamingProvider`
+  (`ReplyStream`, an extension of `ConversationProvider`); `chat.ReplyStream`
+  falls back to a single `Reply` call — no chunks, empty thoughts — for any
+  provider that doesn't. The full reasoning text comes back alongside the
+  answer and is persisted on the assistant row (`messages.thoughts`), so a
+  reopened session still shows it. The desktop UI renders it as a collapsed
+  "Thought process" section above each reply and streams the in-progress
+  turn into a live bubble.
 - **Provider caveat — claudecode is a different control flow.** For a
   provider with native, caller-orchestrated tool calling, the diagram above
   is literal: `Generate` returns either a reply or a `ToolCalls` message,
@@ -286,9 +297,11 @@ edit_automation(id, requested_change)
   (for multi-round tool orchestration), while `chat.ConversationProvider` is
   a narrower `Reply(ctx, priorHandle, history) → (reply, newHandle)` — one
   turn, with a provider-side conversation handle threaded through so the
-  session can be resumed (§5.2). A concrete provider can still satisfy both
-  (`claudecode.ChatModel` does — `Reply` for chat, `Generate` for the
-  writer). Splitting the seams lets chat and the writer run on different
+  session can be resumed (§5.2), plus an optional `chat.StreamingProvider`
+  extension (`ReplyStream`) that additionally streams reasoning and answer
+  chunks and returns the full reasoning text. A concrete provider can still
+  satisfy both seams (`claudecode.ChatModel` does — `Reply`/`ReplyStream` for
+  chat, `Generate` for the writer). Splitting the seams lets chat and the writer run on different
   models (a cheaper conversational model vs. a stronger code-writing one).
   The chat model is per-session (`Session.Model`), with its resume handle in
   `sessions.provider_session_id`; the agent model is process-global (§5.3).
@@ -300,13 +313,18 @@ edit_automation(id, requested_change)
     fallback for an unrecognized/empty session model ID (chat) or an
     unconfigured process-global agent model.
   - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
-    (`claude -p`), dev-builds only. On the first turn (`Generate`, or `Reply`
-    with an empty handle) it flattens history into a system prompt + single
-    transcript prompt; once it has the CLI's `session_id`, `Reply` passes it
-    as `--resume` and sends only the latest user message, returning the
-    (possibly forked) `session_id` for the store to persist. A `--resume`
-    that fails (the CLI no longer has that session on disk) is retried once
-    with the full transcript, so a stale handle self-heals. **`WithTools`
+    (`claude -p`), dev-builds only. On the first turn (`Generate`, or
+    `Reply`/`ReplyStream` with an empty handle) it flattens history into a
+    system prompt + single transcript prompt; once it has the CLI's
+    `session_id`, later turns pass it as `--resume` and send only the latest
+    user message, returning the (possibly forked) `session_id` for the store
+    to persist. A `--resume` that fails (the CLI no longer has that session
+    on disk) is retried once with the full transcript, so a stale handle
+    self-heals. `ReplyStream` runs the same invocation in `stream-json` mode
+    with `--include-partial-messages`, mapping `text_delta` events to answer
+    chunks and `thinking_delta` events to thought chunks (falling back to the
+    consolidated assistant message's `thinking` blocks when the run streamed
+    no deltas). **`WithTools`
     rejects any non-empty tool list
     outright** — the CLI drives its own tool use and can't take an Eino tool
     bind; tools reach it via MCP instead (`WithMCP`, see the dev MCP server

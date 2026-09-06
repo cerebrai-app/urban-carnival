@@ -31,6 +31,29 @@ func Reply(ctx context.Context, provider ConversationProvider, history []app.Mes
 	return msg.Content, handle, nil
 }
 
+// ReplyStream runs one chat turn (DESIGN.md §5.2) with incremental output: if
+// provider implements StreamingProvider the model's reasoning and answer are
+// delivered to onChunk as they're produced; otherwise it falls back to a
+// single Reply call and onChunk is never invoked. It returns the full answer
+// text, the full reasoning text (empty when the provider surfaces none), and
+// the provider's conversation handle to persist and replay next turn.
+// onChunk may be nil to consume the stream without observing it.
+func ReplyStream(ctx context.Context, provider ConversationProvider, history []app.Message, priorHandle string, onChunk func(app.ReplyChunk)) (reply, thoughts, handle string, err error) {
+	sp, ok := provider.(StreamingProvider)
+	if !ok {
+		reply, handle, err = Reply(ctx, provider, history, priorHandle)
+		return reply, "", handle, err
+	}
+	msg, thoughts, handle, err := sp.ReplyStream(ctx, priorHandle, toSchemaMessages(history), onChunk)
+	if err != nil {
+		return "", "", "", fmt.Errorf("chat reply: %w", err)
+	}
+	if msg == nil {
+		return "", "", "", errors.New("chat reply: provider returned no message")
+	}
+	return msg.Content, thoughts, handle, nil
+}
+
 // toSchemaMessages converts persisted history into schema messages. The
 // persisted model has no system role, so this only distinguishes "assistant"
 // from everything-else-as-user (DESIGN.md §5.2).
