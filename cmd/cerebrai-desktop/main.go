@@ -1,6 +1,7 @@
 // Command cerebrai-desktop is cerebrai's native macOS desktop app: the
-// chat and automation management surface described in DESIGN.md §3. It
-// talks to the background worker over a local API and holds no
+// chat and automation management surface described in DESIGN.md §3. The
+// engine that owns automations, chat, and memory runs in-process in this
+// same binary, behind the app.Client port; the UI layer holds no
 // automation, memory, or LLM logic of its own.
 package main
 
@@ -20,10 +21,10 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// TODO: replace with a client that talks to the background worker's
-	// local API once its transport is decided (DESIGN.md §3, §9). Until then
-	// automations are persisted locally via SQLite (internal/storage), so
-	// they survive a restart; see storage.SQLite.
+	// The app.Client is a direct in-process implementation backed by SQLite
+	// (internal/storage), so automations and chat history survive a restart
+	// (DESIGN.md §3, §9). The port stays a seam in case the engine is ever
+	// split into its own service.
 	db, err := storage.Open(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open database:", err)

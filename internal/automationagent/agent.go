@@ -2,7 +2,7 @@
 // §5.3): the genuinely agentic loop that authors or edits an automation,
 // invoked by the chat handoff (§5.2) rather than wrapped around every chat
 // turn. It sits between the seed task it's handed and a pluggable
-// ModelProvider (Provider resolves the worker-global one). Orchestration is
+// ModelProvider (Provider resolves the process-global one). Orchestration is
 // built on Eino's ReAct agent, so the loop can call tools (see tools.go) as
 // part of producing its result. Each Respond call opens its own root
 // OpenTelemetry trace (see tracer), linked back to whatever invoked it,
@@ -50,7 +50,7 @@ type ModelProvider interface {
 // ErrNotConfigured is returned by every Unconfigured call.
 var ErrNotConfigured = errors.New("automationagent: no model provider configured")
 
-// Unconfigured is a placeholder ModelProvider used until the worker-global
+// Unconfigured is a placeholder ModelProvider used until the process-global
 // automation writer model is wired in, so the loop can be built and tested
 // before any vendor integration exists.
 type Unconfigured struct{}
@@ -69,7 +69,7 @@ func (u Unconfigured) WithTools([]*schema.ToolInfo) (einomodel.ToolCallingChatMo
 	return u, nil
 }
 
-// Provider resolves the worker-global automation writer model (DESIGN.md
+// Provider resolves the process-global automation writer model (DESIGN.md
 // §5.3) to a ModelProvider. Unlike chat's model this is not per-session:
 // production picks it once during user setup, developer builds hard-code it
 // (devmode.AgentModel). Falls back to Unconfigured until that setup exists /

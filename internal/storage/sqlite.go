@@ -27,8 +27,8 @@ func titleFromContent(content string) string {
 }
 
 // SQLite is an app.Client backed by the persistent SQLite database this
-// package opens (see Open), used in place of a real background-worker IPC
-// client until that transport exists (DESIGN.md §3, §9).
+// package opens (see Open). It is the in-process implementation of the
+// app.Client port the desktop UI is written against (DESIGN.md §3, §9).
 //
 // It is safe for concurrent use: database/sql pools connections internally,
 // and every query here is a single statement.

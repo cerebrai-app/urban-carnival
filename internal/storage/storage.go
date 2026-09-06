@@ -1,8 +1,8 @@
 // Package storage owns cerebrai's on-disk persistence: where the SQLite
 // database lives (see Path), opening it with its schema up to date (see
 // Open), and the SQLite app.Client that reads and writes its tables (see
-// SQLite) — a stand-in for a real background-worker IPC client until that
-// transport exists (DESIGN.md §3, §9).
+// SQLite) — the in-process implementation of the app.Client port the
+// desktop UI is written against (DESIGN.md §3, §9).
 package storage
 
 import (

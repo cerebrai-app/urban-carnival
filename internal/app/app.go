@@ -1,9 +1,10 @@
 // Package app defines cerebrai's application layer: the domain types and the
 // Client port that the desktop UI (internal/desktopui) is written against.
 // The UI holds no automation, memory, or LLM logic of its own — it only
-// calls this interface (DESIGN.md §3). The concrete implementation lives
-// elsewhere (internal/storage's SQLite Client today, a background-worker IPC
-// client later) so swapping it never touches the UI.
+// calls this interface (DESIGN.md §3). The engine behind the port runs
+// in-process in the same cmd/cerebrai-desktop binary; the concrete
+// implementation lives elsewhere (internal/storage's SQLite Client today) so
+// swapping it never touches the UI.
 package app
 
 import (
@@ -36,7 +37,7 @@ type Session struct {
 	// Model is the chat model ID this session's replies should be generated
 	// with (see chat.DefaultModel, chat.AvailableModels, chat.ProviderFor).
 	// Empty means none has been assigned yet. The automation writer agent's
-	// model is worker-global, not stored here (see automationagent.Provider).
+	// model is process-global, not stored here (see automationagent.Provider).
 	Model     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -78,12 +79,13 @@ type AutomationDraft struct {
 	Source      string
 }
 
-// Client is the desktop app's view of the background worker's local API.
-// The concrete implementation (SQLite today; HTTP, Unix socket, etc. once
-// the worker's IPC transport is implemented) is chosen at wire-up.
+// Client is the UI's view of the engine that owns automations, chat, and
+// memory. That engine runs in-process (DESIGN.md §3); the concrete
+// implementation is chosen at wire-up (SQLite today). The port is kept as a
+// seam so the engine could be split out later without touching the UI.
 //
 // Implementations must be safe for concurrent use: the UI issues every call
-// from its own goroutine so the main thread never blocks on the worker.
+// from its own goroutine so the main thread never blocks on a slow call.
 type Client interface {
 	// CreateSession starts a new, empty conversation thread with the given
 	// title and returns it.
@@ -108,7 +110,7 @@ type Client interface {
 	// the reply are persisted.
 	SendMessage(ctx context.Context, sessionID, content string) (Message, error)
 
-	// ListAutomations returns all automations known to the worker.
+	// ListAutomations returns all automations known to the engine.
 	ListAutomations(ctx context.Context) ([]Automation, error)
 
 	// SetAutomationEnabled enables or disables an automation's trigger.
