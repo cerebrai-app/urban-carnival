@@ -86,7 +86,7 @@ func (a *App) setupSystemTray() {
 	trayMenu := fyne.NewMenu("cerebrai", showItem, fyne.NewMenuItemSeparator(), fyne.NewMenuItem("Quit", a.fyneApp.Quit))
 
 	desk.SetSystemTrayMenu(trayMenu)
-	desk.SetSystemTrayIcon(assets.Icon)
+	desk.SetSystemTrayIcon(assets.TrayIcon)
 }
 
 func (a *App) buildMainMenu() *fyne.MainMenu {

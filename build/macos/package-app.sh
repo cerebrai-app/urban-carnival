@@ -62,8 +62,8 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
 # icon.png -> icon.icns. This full-color PNG is the bundle icon shown in
-# Finder and the Dock; the desktop binary embeds its own all-white variant
-# (internal/desktopui/assets/icon-white.png) for the running window and tray.
+# Finder and the Dock; the desktop binary embeds a copy of it at
+# internal/desktopui/assets/icon.png for the running window and tray.
 # sips/iconutil want a .iconset directory of the conventional sizes; missing
 # sizes just render blurrier, so a full set is cheap insurance.
 src_icon="$here/icon.png"
