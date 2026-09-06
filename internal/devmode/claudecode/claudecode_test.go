@@ -14,11 +14,20 @@ type fakeRunner struct {
 	gotOpts   *claude.RunOptions
 	result    *claude.ClaudeResult
 	err       error
+
+	// calls counts every invocation; resumeErr, when set, fails any call that
+	// carries a ResumeID, simulating a CLI that no longer has that session.
+	calls     int
+	resumeErr error
 }
 
 func (f *fakeRunner) RunPromptCtx(_ context.Context, prompt string, opts *claude.RunOptions) (*claude.ClaudeResult, error) {
+	f.calls++
 	f.gotPrompt = prompt
 	f.gotOpts = opts
+	if f.resumeErr != nil && opts.ResumeID != "" {
+		return nil, f.resumeErr
+	}
 	return f.result, f.err
 }
 
@@ -85,6 +94,70 @@ func TestChatModelReplyResumes(t *testing.T) {
 	}
 	if handle != "sess-xyz" {
 		t.Errorf("handle = %q, want the session id from the result", handle)
+	}
+}
+
+func TestChatModelReplyResumeOmitsSystemPrompt(t *testing.T) {
+	fake := &fakeRunner{result: &claude.ClaudeResult{Result: "ok", SessionID: "s2"}}
+	m := &ChatModel{client: fake}
+
+	if _, _, err := m.Reply(context.Background(), "s1", []*schema.Message{
+		{Role: schema.System, Content: "be terse"},
+		{Role: schema.User, Content: "hi"},
+	}); err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
+	// The resumed CLI session already carries its system prompt; re-sending
+	// one would override it every turn.
+	if fake.gotOpts.SystemPrompt != "" {
+		t.Errorf("SystemPrompt = %q, want empty on resume", fake.gotOpts.SystemPrompt)
+	}
+	if fake.gotOpts.ResumeID != "s1" {
+		t.Errorf("ResumeID = %q, want %q", fake.gotOpts.ResumeID, "s1")
+	}
+}
+
+func TestChatModelReplyRetriesWhenResumeFails(t *testing.T) {
+	fake := &fakeRunner{
+		result:    &claude.ClaudeResult{Result: "recovered", SessionID: "sess-new"},
+		resumeErr: errors.New("no conversation found for the given session id"),
+	}
+	m := &ChatModel{client: fake}
+
+	reply, handle, err := m.Reply(context.Background(), "sess-stale", []*schema.Message{
+		{Role: schema.User, Content: "first"},
+		{Role: schema.Assistant, Content: "hi"},
+		{Role: schema.User, Content: "second"},
+	})
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
+	if fake.calls != 2 {
+		t.Errorf("calls = %d, want 2 (failed resume, then full-transcript retry)", fake.calls)
+	}
+	if reply.Content != "recovered" || handle != "sess-new" {
+		t.Errorf("Reply = (%q, %q), want (%q, %q)", reply.Content, handle, "recovered", "sess-new")
+	}
+	// The retry drops the stale handle and replays the whole conversation.
+	if fake.gotOpts.ResumeID != "" {
+		t.Errorf("retry ResumeID = %q, want empty", fake.gotOpts.ResumeID)
+	}
+	if fake.gotPrompt != "User: first\n\nAssistant: hi\n\nUser: second" {
+		t.Errorf("retry prompt = %q, want the full transcript", fake.gotPrompt)
+	}
+}
+
+func TestChatModelReplyFirstTurnErrorNotRetried(t *testing.T) {
+	fake := &fakeRunner{err: errors.New("boom")}
+	m := &ChatModel{client: fake}
+
+	if _, _, err := m.Reply(context.Background(), "", []*schema.Message{
+		{Role: schema.User, Content: "hi"},
+	}); err == nil {
+		t.Fatal("expected error")
+	}
+	if fake.calls != 1 {
+		t.Errorf("calls = %d, want 1 (no resume handle, nothing to retry)", fake.calls)
 	}
 }
 

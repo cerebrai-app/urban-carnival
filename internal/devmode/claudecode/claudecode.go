@@ -77,26 +77,44 @@ func (m *ChatModel) Generate(ctx context.Context, messages []*schema.Message, _ 
 // empty and the whole transcript is sent; once the CLI has returned a
 // session_id, later turns pass it as --resume and send only the newest user
 // message, letting the CLI keep the prior context itself. The returned handle
-// is the session_id to persist and replay next turn.
+// is the session_id to persist and replay next turn. A resume that fails
+// (stale session) is retried once with the full transcript.
 func (m *ChatModel) Reply(ctx context.Context, priorHandle string, history []*schema.Message) (*schema.Message, string, error) {
 	return m.run(ctx, history, priorHandle)
 }
 
-// run invokes the CLI once. resumeID, when set, resumes that CLI session and
+// run invokes the CLI, resuming resumeID when it's set. A resume that fails
+// — most often because the CLI no longer has that session on disk — is
+// retried once from scratch with the full transcript, so a stale handle
+// self-heals instead of wedging every future turn.
+func (m *ChatModel) run(ctx context.Context, messages []*schema.Message, resumeID string) (*schema.Message, string, error) {
+	if resumeID != "" && len(messages) > 0 {
+		msg, handle, err := m.invoke(ctx, messages, resumeID)
+		if err == nil || ctx.Err() != nil {
+			return msg, handle, err
+		}
+		// The resume failed; fall through and replay the whole conversation
+		// so one bad handle can't fail this session forever.
+	}
+	return m.invoke(ctx, messages, "")
+}
+
+// invoke runs the CLI once. resumeID, when set, resumes that CLI session and
 // narrows the prompt to just the latest message; otherwise the full history
 // is flattened into a system prompt + transcript.
-func (m *ChatModel) run(ctx context.Context, messages []*schema.Message, resumeID string) (*schema.Message, string, error) {
+func (m *ChatModel) invoke(ctx context.Context, messages []*schema.Message, resumeID string) (*schema.Message, string, error) {
 	system, prompt := buildPrompt(messages)
 
-	opts := &claude.RunOptions{
-		Format:       claude.JSONOutput,
-		SystemPrompt: system,
-	}
+	opts := &claude.RunOptions{Format: claude.JSONOutput}
 	if resumeID != "" && len(messages) > 0 {
-		// The CLI already holds everything before this turn; sending the full
-		// transcript again would just duplicate it.
+		// The CLI already holds everything before this turn — the system
+		// prompt included — so send only the latest message; re-sending the
+		// transcript would duplicate it, and re-sending the system prompt
+		// would override the resumed session's own every turn.
 		opts.ResumeID = resumeID
 		prompt = messages[len(messages)-1].Content
+	} else {
+		opts.SystemPrompt = system
 	}
 	if m.mcpConfigJSON != "" {
 		// Attach only our server (StrictMCPConfig) and pre-approve its tools

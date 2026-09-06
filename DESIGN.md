@@ -293,7 +293,9 @@ edit_automation(id, requested_change)
     with an empty handle) it flattens history into a system prompt + single
     transcript prompt; once it has the CLI's `session_id`, `Reply` passes it
     as `--resume` and sends only the latest user message, returning the
-    (possibly forked) `session_id` for the store to persist. **`WithTools`
+    (possibly forked) `session_id` for the store to persist. A `--resume`
+    that fails (the CLI no longer has that session on disk) is retried once
+    with the full transcript, so a stale handle self-heals. **`WithTools`
     rejects any non-empty tool list
     outright** — the CLI drives its own tool use and can't take an Eino tool
     bind; tools reach it via MCP instead (`WithMCP`, see the dev MCP server
