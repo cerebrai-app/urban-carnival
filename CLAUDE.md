@@ -17,7 +17,8 @@ migration:
   (`devmode.Enabled()`).
 
 When you make a schema change, edit the DDL in `0001_initial_schema.sql` (and
-`0001_dev_data.sql` if the seed rows need to match), then delete the local
-database so it is recreated from scratch on next launch. In dev mode the
-database is `cerebrai.db` at the repo root.
+`0001_dev_data.sql` if the seed rows need to match), then run `make clean-db`
+to delete the local database (`cerebrai.db` at the repo root in dev mode).
+Recreate it with `cerebrai db-migrate` (or just launch the app, which
+migrates on startup) to rebuild the schema and seed data from scratch.
 

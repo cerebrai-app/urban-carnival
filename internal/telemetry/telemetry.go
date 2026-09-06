@@ -1,14 +1,16 @@
 // Package telemetry wires up OpenTelemetry tracing and metrics.
 //
-// By default it uses the stdout exporters, printing spans and metrics to
-// stderr with no network calls — no collector required for local runs. Logs
-// go to a plain readable JSON slog handler on stderr instead, since the
-// stdout log exporter dumps raw internal record structs rather than a
-// readable line. When OTLP mode is requested, it instead exports spans,
-// metrics, and logs via OTLP/gRPC, configured through the standard
+// Where spans and metrics go depends on Options. In OTLP mode it exports
+// spans, metrics, and logs via OTLP/gRPC, configured through the standard
 // OTEL_EXPORTER_OTLP_* environment variables; when OTEL_EXPORTER_OTLP_ENDPOINT
 // is unset, it defaults to a local collector at localhost:4317 over an
-// insecure connection.
+// insecure connection. With PrintToStderr it uses the stdout exporters
+// instead, printing spans and metrics to stderr with no network calls. With
+// neither, spans and metrics are dropped (no-op providers) so an installed
+// command stays quiet. Logs always go to a plain readable JSON slog handler
+// on stderr except in OTLP mode (which ships them through otelslog), since the
+// stdout log exporter dumps raw internal record structs rather than a
+// readable line.
 //
 // It also owns LogChatExchange, the one log call that emits conversation
 // content: what it records is chosen at compile time by the cerebrai_dev
@@ -49,15 +51,29 @@ import (
 // such bound.
 const otlpShutdownTimeout = 3 * time.Second
 
+// EnvOTLPEndpoint is the standard OpenTelemetry variable naming the OTLP
+// collector endpoint. The cerebrai CLI treats its presence as the signal to
+// export via OTLP (Options.OTLP); with it unset the CLI falls back to
+// --print-telemetry or stays silent.
+const EnvOTLPEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
 // Shutdown flushes and stops the telemetry providers. Call it before the
 // process exits, e.g. via defer in main.
 type Shutdown func(context.Context) error
 
 // Options configures Setup.
 type Options struct {
-	// OTLP selects the OTLP/gRPC exporters. When false (the default), spans,
-	// metrics, and logs are printed via the stdout exporters instead.
+	// OTLP selects the OTLP/gRPC exporters for spans, metrics, and logs,
+	// configured through the standard OTEL_EXPORTER_OTLP_* environment
+	// variables. It takes precedence over PrintToStderr.
 	OTLP bool
+
+	// PrintToStderr prints spans and metrics to stderr via the stdout
+	// exporters. Ignored when OTLP is set. When neither is set, spans and
+	// metrics are dropped via no-op providers — an installed command should
+	// not spew telemetry unless asked. Logs still go to a plain stderr slog
+	// handler in that case.
+	PrintToStderr bool
 
 	// LogLevel is the minimum slog level (debug, info, warn, error) the
 	// default logger emits. Invalid or empty values fall back to info.
@@ -65,8 +81,9 @@ type Options struct {
 }
 
 // Setup configures global trace, meter, and logger providers for
-// serviceName/version, installs an otelslog-backed slog.Default logger, and
-// returns a Shutdown func to flush and release them.
+// serviceName/version, installs a slog.Default logger (otelslog-backed in
+// OTLP mode, a plain stderr JSON handler otherwise), and returns a Shutdown
+// func to flush and release them.
 func Setup(ctx context.Context, serviceName, serviceVersion string, opts Options) (Shutdown, error) {
 	// Schemaless so it merges cleanly with resource.Default() regardless of
 	// which semconv schema version the SDK's default detectors use.
@@ -86,7 +103,8 @@ func Setup(ctx context.Context, serviceName, serviceVersion string, opts Options
 		metricExporter metric.Exporter
 	)
 	var loggerProvider *sdklog.LoggerProvider
-	if opts.OTLP {
+	switch {
+	case opts.OTLP:
 		var logExporter sdklog.Exporter
 		spanExporter, metricExporter, logExporter, err = newOTLPExporters(ctx)
 		if err != nil {
@@ -96,21 +114,26 @@ func Setup(ctx context.Context, serviceName, serviceVersion string, opts Options
 			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
 			sdklog.WithResource(res),
 		)
-	} else {
+	case opts.PrintToStderr:
 		spanExporter, metricExporter, err = newStdoutExporters()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(spanExporter),
-		sdktrace.WithResource(res),
-	)
-	meterProvider := metric.NewMeterProvider(
-		metric.WithReader(metric.NewPeriodicReader(metricExporter)),
-		metric.WithResource(res),
-	)
+	// A nil exporter leaves the provider with no batcher/reader, so spans and
+	// metrics are simply dropped — the quiet default for an installed command.
+	traceProviderOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
+	if spanExporter != nil {
+		traceProviderOpts = append(traceProviderOpts, sdktrace.WithBatcher(spanExporter))
+	}
+	tracerProvider := sdktrace.NewTracerProvider(traceProviderOpts...)
+
+	meterProviderOpts := []metric.Option{metric.WithResource(res)}
+	if metricExporter != nil {
+		meterProviderOpts = append(meterProviderOpts, metric.WithReader(metric.NewPeriodicReader(metricExporter)))
+	}
+	meterProvider := metric.NewMeterProvider(meterProviderOpts...)
 
 	otel.SetTracerProvider(tracerProvider)
 	otel.SetMeterProvider(meterProvider)
@@ -202,7 +225,7 @@ func newOTLPExporters(ctx context.Context) (sdktrace.SpanExporter, metric.Export
 	var traceOpts []otlptracegrpc.Option
 	var metricOpts []otlpmetricgrpc.Option
 	var logOpts []otlploggrpc.Option
-	if _, ok := os.LookupEnv("OTEL_EXPORTER_OTLP_ENDPOINT"); !ok {
+	if _, ok := os.LookupEnv(EnvOTLPEndpoint); !ok {
 		traceOpts = append(traceOpts,
 			otlptracegrpc.WithEndpoint("localhost:4317"),
 			otlptracegrpc.WithInsecure(),

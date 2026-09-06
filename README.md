@@ -111,32 +111,36 @@ is `make install-macos`: it builds with the `cerebrai_dev` tag and copies the
 [Data storage](#data-storage)). Plain `make package-macos` does neither; its
 bundle stays a clean release build.
 
-The CLI is unaffected: it keeps its `--log-level` and `--otlp` flags.
+The CLI takes `--log-level` and `--print-telemetry` (see
+[Telemetry](#telemetry)).
 
 ## Telemetry
 
-By default, spans and metrics are printed to stderr via the OpenTelemetry
-stdout exporters — no collector required, no network calls.
+The CLI exports spans and metrics via OTLP/gRPC whenever an OTLP collector
+endpoint is configured — `OTEL_EXPORTER_OTLP_ENDPOINT`, which a developer's
+checkout sets in `.env`. If that collector is unreachable the export fails
+silently after a short bounded timeout and never fails the command itself.
 
-Pass `--otlp` to export via OTLP/gRPC instead. By default (no
-`OTEL_EXPORTER_OTLP_ENDPOINT` set) that looks for a collector at
-`localhost:4317` over an insecure connection; if unreachable, telemetry
-export fails silently after a short bounded timeout and never fails the
-command itself.
-
-To point at a different collector/backend, combine `--otlp` with the
-standard OpenTelemetry environment variables, e.g.:
+With no endpoint configured, spans and metrics go nowhere — an installed CLI
+stays quiet — unless you pass `--print-telemetry`, which prints them to
+stderr via the OpenTelemetry stdout exporters (no collector, no network).
+Logs go to stderr either way; `--log-level` sets the threshold.
 
 ```sh
+# print spans and metrics to stderr for a single run
+cerebrai --print-telemetry version
+
+# export to a collector
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com:4317
 export OTEL_EXPORTER_OTLP_HEADERS="api-key=..."
-cerebrai version --otlp
+cerebrai version
 ```
 
-The desktop app has no such flags. OTLP export is a checkbox in the
-Developer section of its Preferences window, which `CEREBRAI_DEV_MODE`
-reveals. The log level comes from `CEREBRAI_LOG_LEVEL`, which applies
-whether or not that section is visible. See [Configuration](#configuration).
+The desktop app instead has an OTLP export checkbox in the Developer section
+of its Preferences window, which `CEREBRAI_DEV_MODE` reveals; without it,
+spans and metrics print to stderr. The log level comes from
+`CEREBRAI_LOG_LEVEL`, which applies whether or not that section is visible.
+See [Configuration](#configuration).
 
 ### Chat content logging
 

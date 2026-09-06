@@ -117,7 +117,9 @@ func (a *App) applyTelemetry() {
 	// failure the previous configuration simply keeps running; shutting down
 	// first would leave slog.Default() bound to dead providers and silently
 	// drop every log line from here on, including this error.
-	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", config.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel()})
+	// Without OTLP the desktop app still prints spans and metrics to stderr,
+	// visible when it's launched from a terminal (make run-desktop).
+	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", config.Version, telemetry.Options{OTLP: otlp, PrintToStderr: true, LogLevel: logLevel()})
 	if err != nil {
 		reportTelemetryProblem("setup telemetry", err)
 		return
