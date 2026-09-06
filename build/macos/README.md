@@ -7,7 +7,11 @@ Turns a prebuilt `cerebrai-desktop` binary into `CerebrAI.app` and a
 | --------------- | ------------------------------------------------------------- |
 | `package-app.sh` | Assembles the `.app` bundle; `--dmg` also builds the installer, `--env KEY=VALUE` adds `LSEnvironment` entries. |
 | `Info.plist.in`  | Bundle metadata template (`@TOKENS@` filled by the script).     |
-| `icon.png`       | Square source icon, 1024×1024 ideal (see [Credits](#credits)).   |
+| `icon.png`       | Full-color square source icon (see [Credits](#credits)); `package-app.sh` renders it into the bundle's `icon.icns`. |
+
+The running desktop binary uses its own all-white variant of the same mark,
+`internal/desktopui/assets/icon-white.png`, for the window/Dock and
+system-tray icon so it stays legible on dark menu bars.
 
 The script builds nothing itself: the binary comes from `make build-desktop`
 or from goreleaser in the release workflow, so version ldflags have one
@@ -55,5 +59,5 @@ in CI).
 
 ## Credits
 
-`icon.png`: <a href="https://www.flaticon.com/free-icons/brain" title="brain icons">Brain icons created by Reddie - Flaticon</a>
+`icon.png` (and the `icon-white.png` variant derived from it): <a href="https://www.flaticon.com/free-icons/brain" title="brain icons">Brain icons created by Reddie - Flaticon</a>
 

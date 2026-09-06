@@ -61,15 +61,18 @@ chmod +x "$app/Contents/MacOS/$app_name"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-# icon.png -> icon.icns. sips/iconutil want a .iconset directory of the
-# conventional sizes; missing sizes just render blurrier, so a full set is
-# cheap insurance.
+# icon.png -> icon.icns. This full-color PNG is the bundle icon shown in
+# Finder and the Dock; the desktop binary embeds its own all-white variant
+# (internal/desktopui/assets/icon-white.png) for the running window and tray.
+# sips/iconutil want a .iconset directory of the conventional sizes; missing
+# sizes just render blurrier, so a full set is cheap insurance.
+src_icon="$here/icon.png"
 iconset="$scratch/icon.iconset"
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
-	sips -z "$size" "$size" "$here/icon.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+	sips -z "$size" "$size" "$src_icon" --out "$iconset/icon_${size}x${size}.png" >/dev/null
 	retina=$((size * 2))
-	sips -z "$retina" "$retina" "$here/icon.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+	sips -z "$retina" "$retina" "$src_icon" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/icon.icns"
 
