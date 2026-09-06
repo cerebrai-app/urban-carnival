@@ -170,7 +170,9 @@ jobs:
           name="cerebrai-desktop_${TAG}_${{ matrix.label }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             cp "$bin" "$stage/cerebrai-desktop.exe"
-            ( cd "$stage" && zip -qr - . ) > "${name}.zip"
+            # The Windows runner's Git Bash has no `zip`; 7z is preinstalled
+            # and on PATH. It needs a native path for the output file.
+            ( cd "$stage" && 7z a -tzip -bso0 -bsp0 "$(cygpath -w "$OLDPWD/${name}.zip")" . )
             archive="${name}.zip"
           else
             cp "$bin" "$stage/cerebrai-desktop"
