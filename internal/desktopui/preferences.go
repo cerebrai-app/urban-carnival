@@ -28,7 +28,7 @@ func (a *App) showPreferencesWindow() {
 		content.Add(a.developerSettings())
 	} else {
 		// Everything here is currently a developer control. User-facing
-		// preferences arrive with the background worker.
+		// preferences arrive with the automation engine.
 		content.Add(widget.NewLabel("No preferences yet."))
 	}
 

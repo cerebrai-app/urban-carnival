@@ -20,8 +20,9 @@ import (
 	"github.com/cerebrai-app/urban-carnival/internal/telemetry"
 )
 
-// App is the desktop application: a native window over the background
-// worker's local API. It holds no automation, memory, or LLM logic itself.
+// App is the desktop application: a native window over the app.Client port
+// (DESIGN.md §3). It holds no automation, memory, or LLM logic itself; the
+// engine behind the port runs in-process in the same binary.
 type App struct {
 	fyneApp fyne.App
 	window  fyne.Window
@@ -117,7 +118,9 @@ func (a *App) applyTelemetry() {
 	// failure the previous configuration simply keeps running; shutting down
 	// first would leave slog.Default() bound to dead providers and silently
 	// drop every log line from here on, including this error.
-	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", config.Version, telemetry.Options{OTLP: otlp, LogLevel: logLevel()})
+	// Without OTLP the desktop app still prints spans and metrics to stderr,
+	// visible when it's launched from a terminal (make run-desktop).
+	shutdown, err := telemetry.Setup(a.ctx, "cerebrai-desktop", config.Version, telemetry.Options{OTLP: otlp, PrintToStderr: true, LogLevel: logLevel()})
 	if err != nil {
 		reportTelemetryProblem("setup telemetry", err)
 		return

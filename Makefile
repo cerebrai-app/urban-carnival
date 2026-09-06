@@ -129,9 +129,19 @@ fmt:
 tidy:
 	go mod tidy
 
+# Removes build output.
 .PHONY: clean
 clean:
 	rm -rf bin dist
+
+# Deletes the repo-local SQLite database (dev checkouts keep it at the repo
+# root; see internal/storage.Path). The schema is not versioned incrementally
+# (see CLAUDE.md), so picking up a migration or seed edit means starting from
+# an empty database: run this, then `cerebrai db-migrate` or just launch the
+# app to rebuild it from scratch.
+.PHONY: clean-db
+clean-db:
+	rm -f cerebrai.db cerebrai.db-shm cerebrai.db-wal
 
 # Reproduces the CI build-test job (build, vet, test) in a container with
 # the Fyne/glfw cgo dependencies installed, matching the ubuntu-latest

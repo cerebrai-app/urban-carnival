@@ -12,7 +12,7 @@ import (
 )
 
 // newAutomationsView builds the automation management surface: the list of
-// automations the worker owns, their triggers, and enable/disable controls
+// automations the engine owns, their triggers, and enable/disable controls
 // (DESIGN.md §2, §4).
 func newAutomationsView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	// automations backs the list and is only ever touched on the Fyne main
@@ -57,9 +57,9 @@ func newAutomationsView(ctx context.Context, client app.Client) fyne.CanvasObjec
 				go func() {
 					if err := client.SetAutomationEnabled(ctx, id, checked); err != nil {
 						slog.Error("set automation enabled", "id", id, "enabled", checked, "error", err)
-						// The worker rejected the change, so put the row back
+						// The engine rejected the change, so put the row back
 						// the way it was rather than leaving the UI claiming a
-						// state the worker does not have.
+						// state the engine does not have.
 						fyne.Do(func() { setEnabled(id, !checked) })
 						return
 					}

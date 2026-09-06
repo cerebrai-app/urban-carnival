@@ -37,7 +37,7 @@ func AvailableChatModels() []string {
 }
 
 // AgentModel returns the model ID the automation writer agent runs on
-// (DESIGN.md §5.3). Unlike the chat model this is worker-global, not
+// (DESIGN.md §5.3). Unlike the chat model this is process-global, not
 // per-session: production picks it once during user setup, and developer
 // builds hard-code ModelClaudeCode. Empty in production builds until that
 // setup exists.

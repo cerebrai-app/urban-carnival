@@ -2,7 +2,7 @@
 // checkout rather than a real build: the CEREBRAI_DEV_MODE gate itself
 // (Enabled) and the local Claude Code model wiring that gate turns on
 // (internal/devmode/claudecode, surfaced here as the chat catalog
-// DefaultChatModel / AvailableChatModels, the worker-global AgentModel, and
+// DefaultChatModel / AvailableChatModels, the process-global AgentModel, and
 // the shared Provider resolver). The cerebrai_dev build tag's raw
 // chat-content logging lives in internal/telemetry.
 package devmode

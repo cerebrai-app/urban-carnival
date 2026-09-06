@@ -1,8 +1,8 @@
 // Package storage owns cerebrai's on-disk persistence: where the SQLite
 // database lives (see Path), opening it with its schema up to date (see
 // Open), and the SQLite app.Client that reads and writes its tables (see
-// SQLite) — a stand-in for a real background-worker IPC client until that
-// transport exists (DESIGN.md §3, §9).
+// SQLite) — the in-process implementation of the app.Client port the
+// desktop UI is written against (DESIGN.md §3, §9).
 package storage
 
 import (
@@ -64,6 +64,24 @@ func Open(ctx context.Context) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// Migrate opens cerebrai's database at its resolved Path, brings its schema
+// up to date the same way Open does on every launch, closes it again, and
+// returns the path it acted on. It backs the `cerebrai db-migrate` command,
+// so a developer can pick up a migration or seed edit without starting the
+// app. Like Open, it also applies the embedded seeds under seeds/ when
+// devmode.Enabled.
+func Migrate(ctx context.Context) (string, error) {
+	path, err := Path()
+	if err != nil {
+		return "", err
+	}
+	db, err := Open(ctx)
+	if err != nil {
+		return "", err
+	}
+	return path, db.Close()
 }
 
 // migrate brings the database's schema up to date. Every embedded migration

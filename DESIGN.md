@@ -36,39 +36,50 @@ starting on **macOS**.
 ## 3. Architecture (initial direction)
 
 ```
-┌─────────────────────┐
-│   Desktop App (UI)   │  Native, full-window macOS app.
-│  chat + automation   │  Primary way users interact with cerebrai.
-│  management surface  │
-└──────────┬───────────┘
-           │ IPC / local API
-┌──────────▼───────────┐
-│   Background Worker   │  Long-running local service.
-│ - schedule/trigger     │  Owns automation execution, memory store,
-│   evaluation           │  and LLM orchestration. Runs even when
-│ - automation execution │  the UI is closed.
-│ - memory store         │
-│ - LLM orchestration    │
-└──────────┬───────────┘
-           │
-┌──────────▼───────────┐
-│   CLI (secondary)      │  Debugging/inspection only in v1
-│   `cerebrai ...`       │  (current scaffold). Not the primary
-└───────────────────────┘  interface going forward.
+┌─────────────────────────────────────────────────────────────┐
+│  Desktop app — single process (cmd/cerebrai-desktop)         │
+│                                                             │
+│   UI layer (internal/desktopui)                              │
+│     chat + automation management surface; native macOS.      │
+│     No automation / memory / LLM logic of its own.           │
+│                     │                                       │
+│                     ▼   app.Client port (internal/app)      │
+│   Engine (in-process)                                        │
+│     - schedule / trigger evaluation                          │
+│     - automation execution                                   │
+│     - memory store                                           │
+│     - LLM orchestration (Eino)                               │
+│     Stays alive while the window is hidden (quit is a         │
+│     deliberate tray action), so schedules keep firing.       │
+└─────────────────────────────────────────────────────────────┘
+
+CLI (cmd/cerebrai) — a separate entrypoint. Debugging / inspection only
+in v1, not the primary interface.
 ```
 
 Key shift from the current repo scaffold: the existing Go CLI
 (`cmd/cerebrai`, `internal/cli`) becomes a **debugging tool**, not the
-product surface. The product surface is a native desktop app talking to a
-background worker/daemon that owns execution, scheduling, and memory.
+product surface. The product surface is the native desktop app, and
+everything behind its UI — schedule/trigger evaluation, automation
+execution, the memory store, LLM orchestration — runs **in-process** in the
+same `cmd/cerebrai-desktop` binary, not in a separate worker or daemon. The
+window closing only hides it (quit is an explicit tray action), so the
+in-process engine stays alive to service schedules and triggers.
 
-**Background worker: Go**, reusing the existing scaffold
-(`internal/telemetry`, `internal/config`) and built around
+The UI layer talks to that engine only through the `app.Client` port
+(`internal/app`), which today is a direct in-process implementation
+(`internal/storage`'s SQLite client). Keeping the seam means the engine
+*could* be split into its own service later without touching the UI, but
+that is explicitly not planned for v1.
+
+**Engine stack: Go**, reusing the existing scaffold (`internal/telemetry`,
+`internal/config`) and built around
 [Eino](https://github.com/cloudwego/eino) (CloudWeGo's Go framework for LLM
 applications) for model invocation and, specifically, the automation writer
 agent's tool-calling loop (§5) — not for plain chat, which is a direct
 model call rather than an Eino agent. This resolves the "background worker
-stack" open question from the previous draft.
+stack" open question from the previous draft (and the decision is now: no
+separate worker at all for v1).
 
 ## 4. Automation Execution Model
 
@@ -216,7 +227,7 @@ edit_automation(id, requested_change)
   one task to completion including any tool-calling rounds. What changed is
   who calls it: only the chat handoff (§5.2), not a per-message
   conversational wrapper.
-- The provider is the worker-global automation-writer model
+- The provider is the process-global automation-writer model
   (`automationagent.Provider()`), not the chat session's per-session model —
   production picks it once at user setup, dev builds hard-code it
   (`devmode.AgentModel`).
@@ -280,14 +291,14 @@ edit_automation(id, requested_change)
   writer). Splitting the seams lets chat and the writer run on different
   models (a cheaper conversational model vs. a stronger code-writing one).
   The chat model is per-session (`Session.Model`), with its resume handle in
-  `sessions.provider_session_id`; the agent model is worker-global (§5.3).
+  `sessions.provider_session_id`; the agent model is process-global (§5.3).
   There is no shared `internal/model` package — each package owns its
   interface plus its own `Unconfigured` / `ErrNotConfigured`.
 - Concrete providers today:
   - `chat.Unconfigured` / `automationagent.Unconfigured` — placeholders
     returning that package's `ErrNotConfigured` from every call. The
     fallback for an unrecognized/empty session model ID (chat) or an
-    unconfigured worker-global agent model.
+    unconfigured process-global agent model.
   - `devmode/claudecode.ChatModel` — shells out to the local `claude` CLI
     (`claude -p`), dev-builds only. On the first turn (`Generate`, or `Reply`
     with an empty handle) it flattens history into a system prompt + single
@@ -308,12 +319,12 @@ edit_automation(id, requested_change)
     names from an MCP server registered via `MCPConfigPath`/`MCPConfigs`.
     None of the three hands the CLI a brand-new tool's schema by itself —
     only MCP server config does that.
-  - **Decision (built): the worker runs its own in-process MCP server, dev
+  - **Decision (built): the app runs its own in-process MCP server, dev
     builds only** — `internal/devmode/devmcp`, serving cerebrai's own tools
     (`create_automation`, `edit_automation`) to the `claude` CLI subprocess.
     Transport is **streamable HTTP on a random 127.0.0.1 port** (via
     `github.com/modelcontextprotocol/go-sdk`); truly in-process, so the tool
-    handlers share the worker's live automation store. `devmcp.Server`
+    handlers share the app's live automation store. `devmcp.Server`
     exposes `ConfigJSON()` (an inline `--mcp-config` document) and
     `ToolNames()`; `devmode.SetMCPBridge` registers it, and
     `devmode.ChatProvider` hands both to `claudecode.WithMCP`, which sets
@@ -355,7 +366,7 @@ edit_automation(id, requested_change)
   - `chat.DefaultModel()` / `chat.AvailableModels()` /
     `chat.ProviderFor(modelID)` / `chat.DefaultProvider()` — the
     per-session chat catalog, each falling back to `chat.Unconfigured`.
-  - `automationagent.Provider()` — the single worker-global
+  - `automationagent.Provider()` — the single process-global
     automation-writer provider (§5.3), falling back to
     `automationagent.Unconfigured`.
 

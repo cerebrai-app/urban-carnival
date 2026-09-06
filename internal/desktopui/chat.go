@@ -209,7 +209,7 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 				if err != nil {
 					slog.Error("send message", "error", err)
 					if currentSessionID == sessionID {
-						messages = append(messages, app.Message{Role: "assistant", Content: "(error contacting background worker)"})
+						messages = append(messages, app.Message{Role: "assistant", Content: chatErrorMessage(err)})
 						refreshHistory()
 					}
 					return
@@ -245,4 +245,17 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	split := container.NewHSplit(sessionsColumn, chatColumn)
 	split.SetOffset(0.25)
 	return split
+}
+
+// chatErrorMessage turns a failed SendMessage into the line shown in the
+// transcript where the reply would have been. It quotes the underlying error
+// rather than a fixed "something went wrong": the client is in-process today
+// (internal/storage), so the cause is almost always local and actionable —
+// no model provider configured, a stale database, the Claude Code CLI
+// missing — and hiding it just sends the user to the logs.
+func chatErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("⚠️ Couldn't generate a reply: %v", err)
 }
