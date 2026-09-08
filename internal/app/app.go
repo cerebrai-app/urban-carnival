@@ -60,9 +60,16 @@ type Message struct {
 // ReplyChunk is one incremental update during a streamed assistant turn
 // (Client.StreamMessage). Thought carries new reasoning text and Answer new
 // answer text; a given chunk usually sets exactly one of them.
+//
+// Reset is a control signal, not text: it means streaming for this turn
+// restarted (the provider abandoned a partial attempt and is retrying), so a
+// consumer that has been accumulating Thought/Answer must discard everything
+// received so far before applying the chunks that follow. A Reset chunk
+// carries no Thought or Answer.
 type ReplyChunk struct {
 	Thought string
 	Answer  string
+	Reset   bool
 }
 
 // Automation is a discrete piece of LLM-generated code plus metadata, as

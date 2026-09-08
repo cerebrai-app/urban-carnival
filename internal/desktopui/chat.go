@@ -383,6 +383,16 @@ func newStreamingBubble() *streamingBubble {
 }
 
 func (b *streamingBubble) append(c app.ReplyChunk) {
+	if c.Reset {
+		// The provider abandoned a partial attempt and is retrying; drop
+		// everything streamed so far so the retry starts from a clean bubble.
+		b.thoughtBuf.Reset()
+		b.answerBuf.Reset()
+		b.thought.SetText("")
+		b.answer.SetText("")
+		b.thoughtAcc.Hide()
+		return
+	}
 	if c.Thought != "" {
 		b.thoughtBuf.WriteString(c.Thought)
 		b.thought.SetText(b.thoughtBuf.String())

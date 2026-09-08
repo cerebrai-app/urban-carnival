@@ -26,8 +26,11 @@ type fakeRunner struct {
 
 	// calls counts every invocation; resumeErr, when set, fails any call that
 	// carries a ResumeID, simulating a CLI that no longer has that session.
-	calls     int
-	resumeErr error
+	// resumePartial is streamed on that failing call before resumeErr lands,
+	// modelling a resume that dies part-way through the reply.
+	calls         int
+	resumeErr     error
+	resumePartial []claude.Message
 }
 
 func (f *fakeRunner) RunPromptCtx(_ context.Context, prompt string, opts *claude.RunOptions) (*claude.ClaudeResult, error) {
@@ -51,6 +54,9 @@ func (f *fakeRunner) StreamPrompt(_ context.Context, prompt string, opts *claude
 		defer close(msgCh)
 		defer close(errCh)
 		if f.resumeErr != nil && opts.ResumeID != "" {
+			for _, m := range f.resumePartial {
+				msgCh <- m
+			}
 			errCh <- f.resumeErr
 			return
 		}
@@ -361,6 +367,111 @@ func TestChatModelReplyStreamResumeThenRetry(t *testing.T) {
 	}
 }
 
+// TestChatModelReplyStreamResumeFailFastNoReset covers the common stale-handle
+// case: the resume dies before streaming a single token, so the retry can just
+// stream normally and no Reset chunk should reach the consumer.
+func TestChatModelReplyStreamResumeFailFastNoReset(t *testing.T) {
+	fake := &fakeRunner{
+		resumeErr: errors.New("no conversation found for the given session id"),
+		streamMsgs: []claude.Message{
+			textDelta("recov"),
+			textDelta("ered"),
+			{Type: "result", Result: "recovered", SessionID: "sess-new"},
+		},
+	}
+	m := &ChatModel{client: fake}
+
+	var chunks []app.ReplyChunk
+	reply, _, handle, err := m.ReplyStream(context.Background(), "sess-stale", []*schema.Message{
+		{Role: schema.User, Content: "first"},
+		{Role: schema.Assistant, Content: "hi"},
+		{Role: schema.User, Content: "second"},
+	}, func(c app.ReplyChunk) { chunks = append(chunks, c) })
+	if err != nil {
+		t.Fatalf("ReplyStream: %v", err)
+	}
+	if reply.Content != "recovered" || handle != "sess-new" {
+		t.Errorf("ReplyStream = (%q, %q), want (recovered, sess-new)", reply.Content, handle)
+	}
+	var answer string
+	for _, c := range chunks {
+		if c.Reset {
+			t.Fatalf("Reset emitted though the resume attempt streamed nothing: %+v", chunks)
+		}
+		answer += c.Answer
+	}
+	if answer != "recovered" {
+		t.Errorf("streamed answer = %q, want %q", answer, "recovered")
+	}
+}
+
+// TestChatModelReplyStreamResumeFailsMidStreamResets covers a resume that
+// streams part of a reply and then fails. The consumer must see a Reset
+// separating the abandoned output from the retry, and the post-Reset chunks
+// must reconstruct exactly the retry's reply with none of the abandoned text.
+func TestChatModelReplyStreamResumeFailsMidStreamResets(t *testing.T) {
+	fake := &fakeRunner{
+		resumeErr: errors.New("session vanished mid-stream"),
+		resumePartial: []claude.Message{
+			thinkingDelta("half a thought"),
+			textDelta("half an answer"),
+		},
+		streamMsgs: []claude.Message{
+			thinkingDelta("clean "),
+			thinkingDelta("thought"),
+			textDelta("clean "),
+			textDelta("answer"),
+			{Type: "result", Result: "clean answer", SessionID: "sess-new"},
+		},
+	}
+	m := &ChatModel{client: fake}
+
+	var chunks []app.ReplyChunk
+	reply, thoughts, handle, err := m.ReplyStream(context.Background(), "sess-stale", []*schema.Message{
+		{Role: schema.User, Content: "first"},
+		{Role: schema.Assistant, Content: "hi"},
+		{Role: schema.User, Content: "second"},
+	}, func(c app.ReplyChunk) { chunks = append(chunks, c) })
+	if err != nil {
+		t.Fatalf("ReplyStream: %v", err)
+	}
+	if fake.calls != 2 {
+		t.Errorf("calls = %d, want 2", fake.calls)
+	}
+	if reply.Content != "clean answer" || thoughts != "clean thought" || handle != "sess-new" {
+		t.Errorf("ReplyStream = (%q, %q, %q), want (clean answer, clean thought, sess-new)", reply.Content, thoughts, handle)
+	}
+
+	resetAt := -1
+	for i, c := range chunks {
+		if c.Reset {
+			resetAt = i
+			if c.Answer != "" || c.Thought != "" {
+				t.Errorf("Reset chunk also carried text: %+v", c)
+			}
+			break
+		}
+	}
+	if resetAt < 0 {
+		t.Fatalf("no Reset chunk emitted; chunks = %+v", chunks)
+	}
+
+	var preAnswer, postAnswer, postThought string
+	for _, c := range chunks[:resetAt] {
+		preAnswer += c.Answer
+	}
+	for _, c := range chunks[resetAt+1:] {
+		postAnswer += c.Answer
+		postThought += c.Thought
+	}
+	if preAnswer != "half an answer" {
+		t.Errorf("pre-reset answer = %q, want the abandoned %q", preAnswer, "half an answer")
+	}
+	if postAnswer != "clean answer" || postThought != "clean thought" {
+		t.Errorf("post-reset = (answer %q, thought %q), want (clean answer, clean thought)", postAnswer, postThought)
+	}
+}
+
 func TestChatModelReplyStreamResultError(t *testing.T) {
 	fake := &fakeRunner{streamMsgs: []claude.Message{
 		{Type: "result", Result: "denied", IsError: true},
@@ -390,5 +501,59 @@ func TestChatModelReplyStreamThinkingBlockFallback(t *testing.T) {
 	}
 	if gotThoughts != "quiet reasoning" || thoughts != "quiet reasoning" {
 		t.Errorf("thoughts = (%q returned, %q streamed), want %q", gotThoughts, thoughts, "quiet reasoning")
+	}
+}
+
+func TestChatModelReplyStreamThinkingBlockFallbackMultiTurn(t *testing.T) {
+	// A tool-using turn: two consolidated assistant messages, each with its own
+	// thinking block and no thinking_delta events. The fallback must keep both,
+	// separated so they don't read as one run-on paragraph.
+	fake := &fakeRunner{streamMsgs: []claude.Message{
+		{Type: "assistant", Message: []byte(`{"content":[{"type":"thinking","thinking":"First I check the docs."},{"type":"tool_use","id":"t1","name":"read"}]}`)},
+		{Type: "assistant", Message: []byte(`{"content":[{"type":"thinking","thinking":"Now I can answer."},{"type":"text","text":"done"}]}`)},
+		{Type: "result", Result: "done", SessionID: "s"},
+	}}
+	m := &ChatModel{client: fake}
+
+	reply, gotThoughts, _, err := m.ReplyStream(context.Background(), "", []*schema.Message{{Role: schema.User, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("ReplyStream: %v", err)
+	}
+	if want := "First I check the docs.\n\nNow I can answer."; gotThoughts != want {
+		t.Errorf("thoughts = %q, want %q (turns joined by a blank line)", gotThoughts, want)
+	}
+	if reply.Content != "done" {
+		t.Errorf("reply = %q, want %q", reply.Content, "done")
+	}
+}
+
+func TestChatModelReplyStreamThinkingDeltaMultiTurnSeparator(t *testing.T) {
+	// thinking_delta events across a tool-using turn: turn one reasons, calls a
+	// tool, then turn two reasons again. The two runs of deltas must be joined
+	// by a blank line, both in the return value and in the streamed chunks.
+	fake := &fakeRunner{streamMsgs: []claude.Message{
+		thinkingDelta("Weigh "),
+		thinkingDelta("the options."),
+		{Type: "assistant", Message: []byte(`{"content":[{"type":"tool_use","id":"t1","name":"read"}]}`)},
+		thinkingDelta("Now "),
+		thinkingDelta("answer."),
+		{Type: "assistant", Message: []byte(`{"content":[{"type":"text","text":"done"}]}`)},
+		{Type: "result", Result: "done", SessionID: "s"},
+	}}
+	m := &ChatModel{client: fake}
+
+	var streamed string
+	reply, gotThoughts, _, err := m.ReplyStream(context.Background(), "", []*schema.Message{{Role: schema.User, Content: "hi"}}, func(c app.ReplyChunk) {
+		streamed += c.Thought
+	})
+	if err != nil {
+		t.Fatalf("ReplyStream: %v", err)
+	}
+	want := "Weigh the options.\n\nNow answer."
+	if gotThoughts != want || streamed != want {
+		t.Errorf("thoughts = (%q returned, %q streamed), want %q", gotThoughts, streamed, want)
+	}
+	if reply.Content != "done" {
+		t.Errorf("reply = %q, want %q", reply.Content, "done")
 	}
 }

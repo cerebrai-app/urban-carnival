@@ -162,15 +162,33 @@ func (m *ChatModel) buildRun(messages []*schema.Message, resumeID string) (strin
 // the session_id to persist.
 func (m *ChatModel) ReplyStream(ctx context.Context, priorHandle string, history []*schema.Message, onChunk func(app.ReplyChunk)) (*schema.Message, string, string, error) {
 	if priorHandle != "" && len(history) > 0 {
-		msg, thoughts, handle, err := m.streamInvoke(ctx, history, priorHandle, onChunk)
+		// Watch whether the resume attempt streams anything, so that if it
+		// then fails we can tell the consumer to drop that partial output
+		// before the retry re-streams the turn from scratch.
+		streamed := false
+		gate := onChunk
+		if onChunk != nil {
+			gate = func(c app.ReplyChunk) { streamed = true; onChunk(c) }
+		}
+		msg, thoughts, handle, err := m.streamInvoke(ctx, history, priorHandle, gate)
 		if err == nil || ctx.Err() != nil {
 			return msg, thoughts, handle, err
 		}
 		// The resume failed; replay the whole conversation so one bad handle
-		// can't wedge the session forever (see run).
+		// can't wedge the session forever (see run). If the abandoned attempt
+		// already emitted chunks, reset the consumer first so the retry's
+		// output doesn't append onto a half-written reply.
+		if streamed {
+			emitChunk(onChunk, app.ReplyChunk{Reset: true})
+		}
 	}
 	return m.streamInvoke(ctx, history, "", onChunk)
 }
+
+// thoughtSeparator joins reasoning from different assistant turns (a
+// tool-using reply produces several) so they render as distinct paragraphs
+// instead of one run-on block.
+const thoughtSeparator = "\n\n"
 
 // streamInvoke runs the CLI once in stream-json mode, forwarding incremental
 // reasoning and answer text to onChunk and accumulating both for the return.
@@ -186,21 +204,36 @@ func (m *ChatModel) streamInvoke(ctx context.Context, messages []*schema.Message
 	var answer, thought, blockThought strings.Builder
 	var handle, resultText string
 	var isError bool
+	// A completed assistant message marks a turn boundary; reasoning that
+	// follows one belongs to the next turn and is separated from the previous
+	// turn's so the two don't read as one run-on block.
+	newThoughtTurn := false
 	for msg := range msgCh {
 		if t, ok := msg.PartialText(); ok {
 			answer.WriteString(t)
 			emitChunk(onChunk, app.ReplyChunk{Answer: t})
 		}
 		if t, ok := partialThinking(msg); ok {
+			if newThoughtTurn && thought.Len() > 0 {
+				thought.WriteString(thoughtSeparator)
+				emitChunk(onChunk, app.ReplyChunk{Thought: thoughtSeparator})
+			}
+			newThoughtTurn = false
 			thought.WriteString(t)
 			emitChunk(onChunk, app.ReplyChunk{Thought: t})
 		}
 		if t := assistantThinking(msg); t != "" {
-			// The consolidated assistant message: a fallback for when the
-			// stream carried no thinking_delta events. Kept separate so it
-			// doesn't double-count the streamed deltas.
-			blockThought.Reset()
+			// The consolidated assistant message (one per turn, so several
+			// across a tool-using turn): a fallback for when the stream
+			// carried no thinking_delta events. Accumulated across turns, and
+			// kept separate from the deltas so it can't double-count them.
+			if blockThought.Len() > 0 {
+				blockThought.WriteString(thoughtSeparator)
+			}
 			blockThought.WriteString(t)
+		}
+		if msg.Type == "assistant" {
+			newThoughtTurn = true
 		}
 		if msg.Type == "result" {
 			handle = msg.SessionID

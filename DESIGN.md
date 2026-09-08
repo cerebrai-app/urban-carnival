@@ -324,7 +324,11 @@ edit_automation(id, requested_change)
     with `--include-partial-messages`, mapping `text_delta` events to answer
     chunks and `thinking_delta` events to thought chunks (falling back to the
     consolidated assistant message's `thinking` blocks when the run streamed
-    no deltas). **`WithTools`
+    no deltas). Reasoning from separate turns of a tool-using reply is joined
+    by a blank line. When a stale `--resume` is retried mid-turn and the abandoned
+    attempt already streamed chunks, `ReplyStream` emits a reset
+    `app.ReplyChunk` first so a consumer rendering the partial reply clears it
+    before the retry re-streams. **`WithTools`
     rejects any non-empty tool list
     outright** — the CLI drives its own tool use and can't take an Eino tool
     bind; tools reach it via MCP instead (`WithMCP`, see the dev MCP server
