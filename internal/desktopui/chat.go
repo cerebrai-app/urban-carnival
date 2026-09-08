@@ -46,7 +46,7 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 			historyBox.Add(messageBubble(m))
 		}
 		historyBox.Refresh()
-		historyScroll.ScrollToBottom()
+		scrollTranscriptToBottom(historyScroll)
 	}
 
 	sessionList := widget.NewList(
@@ -213,6 +213,7 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 		live := newStreamingBubble()
 		historyBox.Add(live.root)
 		historyBox.Refresh()
+		scrollTranscriptToBottom(historyScroll)
 
 		onChunk := func(c app.ReplyChunk) {
 			fyne.Do(func() {
@@ -220,7 +221,7 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 					return
 				}
 				live.append(c)
-				historyScroll.ScrollToBottom()
+				scrollTranscriptToBottom(historyScroll)
 			})
 		}
 
@@ -267,6 +268,24 @@ func newChatView(ctx context.Context, client app.Client) fyne.CanvasObject {
 	split := container.NewHSplit(sessionsColumn, chatColumn)
 	split.SetOffset(0.25)
 	return split
+}
+
+// scrollTranscriptToBottom pins the newest message in view as the transcript
+// grows. container.Scroll only resizes its content to fit freshly added (or
+// freshly streamed-into) children on the next paint, and ScrollToBottom
+// measures that not-yet-updated content — so on the frame a reply first
+// overflows the viewport an unaided ScrollToBottom is a no-op. Resizing the
+// content here, exactly as the scroll's own renderer would, makes the jump
+// land on the real bottom every time.
+func scrollTranscriptToBottom(scroll *container.Scroll) {
+	c := scroll.Content
+	if c == nil {
+		return
+	}
+	content := c.MinSize()
+	size := scroll.Size()
+	c.Resize(fyne.NewSize(fyne.Max(content.Width, size.Width), fyne.Max(content.Height, size.Height)))
+	scroll.ScrollToBottom()
 }
 
 // bubbleMaxWidthFrac caps a chat bubble at this fraction of the transcript
