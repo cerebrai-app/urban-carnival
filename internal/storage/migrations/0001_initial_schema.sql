@@ -40,6 +40,10 @@ CREATE TABLE messages (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role       TEXT NOT NULL,
     content    TEXT NOT NULL,
+    -- thoughts is the model's streamed reasoning for an assistant message
+    -- (DESIGN.md §5.2), shown collapsed above the reply in the UI. Empty for
+    -- user messages and for providers that don't surface reasoning.
+    thoughts   TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 

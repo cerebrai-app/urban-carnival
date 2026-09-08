@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/cerebrai-app/urban-carnival/internal/app"
 	"github.com/cerebrai-app/urban-carnival/internal/devmode"
 )
 
@@ -31,6 +32,19 @@ type ConversationProvider interface {
 	// may fork on resume. A provider with no such concept ignores priorHandle
 	// and returns "".
 	Reply(ctx context.Context, priorHandle string, history []*schema.Message) (reply *schema.Message, handle string, err error)
+}
+
+// StreamingProvider is the optional streaming extension of
+// ConversationProvider (DESIGN.md §5.2). A provider that can surface the
+// model's reasoning and answer as they're produced implements it; ReplyStream
+// delivers those increments through onChunk (as app.ReplyChunk values) and
+// still returns the complete answer and reasoning text plus the handle to
+// persist. Reply is expected to be equivalent to running ReplyStream with a
+// nil onChunk and discarding thoughts. chat.ReplyStream falls back to plain
+// Reply for providers that don't implement this.
+type StreamingProvider interface {
+	ConversationProvider
+	ReplyStream(ctx context.Context, priorHandle string, history []*schema.Message, onChunk func(app.ReplyChunk)) (reply *schema.Message, thoughts, handle string, err error)
 }
 
 // ErrNotConfigured is returned by every Unconfigured call.
